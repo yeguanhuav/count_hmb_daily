@@ -1,0 +1,601 @@
+---
+title: "`r city``r project_name`项目进展汇报"
+subtitle: "（截止至`r sop_datetime`）"
+documentclass: ctexart
+#keywords:
+#  - 中文
+#  - R Markdown
+output:
+  rticles::ctex:
+    fig_caption: yes
+    #number_sections: yes
+    toc: yes
+
+# 页边距：https://zhuanlan.zhihu.com/p/96993644
+#geometry: "left=2.5cm,right=2.5cm,top=2.5cm,bottom=2.5cm"
+#CJKmainfont: Microsoft YaHei
+
+# Header: 
+# 1: https://tex.stackexchange.com/questions/526101/how-to-customize-header-with-rmarkdown
+# 2: https://github.com/CTeX-org/forum/issues/122#issuecomment-636338223
+header-includes:
+  - \usepackage{fancyhdr}
+  - \pagestyle{fancy}
+  - \fancyhead{}
+  - \fancyfoot[OC]{\thepage}
+
+# 参数：https://bookdown.org/yihui/rmarkdown/parameterized-reports.html
+params:
+  #work_dir: "C:/Users/barry/OneDrive/Medbanks/项目/自动化项目推广数据汇报"
+  #work_dir: "/Users/yeguanhua/Library/CloudStorage/OneDrive-个人/Medbanks/项目/自动化项目推广数据汇报"
+  #render_params_file: "render_params.xlsx"
+  work_dir: "`r sop_dir`"
+  city: "`r city`"
+  project_name: "`r project_name`"
+  start_date: "`r start_time`"
+  end_date: "`r end_time`"
+  sop_datetime: "`r sop_datetime`"
+---
+
+```{r setup, echo=FALSE, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(
+  echo=FALSE, message=FALSE, warning=FALSE, fig.showtext=TRUE, fig.align='center', 
+  fig.width=8, fig.height=4
+)
+library(showtext) # 在PDF中显示中文：https://blog.csdn.net/u012111465/article/details/79945372
+library(cowplot)
+library(ggsci)
+library(ggrepel)
+library(ggplot2)
+library(glue)
+library(scales)
+library(readxl)
+library(lubridate)
+library(tidyverse)
+# 获取参数
+city <- params$city
+project_name <- params$project_name
+start_date <- paste0(
+  lubridate::year(params$start_date), '年', 
+  lubridate::month(params$start_date), '月', 
+  lubridate::day(params$start_date), '日',
+  lubridate::hour(params$start_date), '时'
+)
+end_date <- paste0(
+  lubridate::year(params$end_date), '年', 
+  lubridate::month(params$end_date), '月', 
+  lubridate::day(params$end_date), '日',
+  lubridate::hour(params$end_date), '时'
+)
+run_days <- as.numeric(
+  difftime(
+    as.Date(params$end_date), as.Date(params$start_date), tz = Sys.timezone(), units = 'days'
+  )
+)
+sop_datetime <- params$sop_datetime
+data_folder <- glue("{params$work_dir}/{params$city}/{params$sop_datetime}")
+# 查找个人和企业每日投保量统计数据，如果没有则查找个人每日投保量统计数据，如果都没有则报错
+if( !file.exists(glue('{data_folder}/{city}个人和企业每日投保量统计-截止至{sop_datetime}.xlsx')) ) {
+  if( !file.exists(glue('{data_folder}/{city}个人每日投保量统计-截止至{sop_datetime}.xlsx')) ) {
+    stop(glue('Cannot find 每日投保量统计, please check again.'))
+    # https://bookdown.org/yihui/rmarkdown-cookbook/knit-exit.html
+    knitr::knit_exit()
+  } else {
+    daily_orders_count <- read_excel(
+      glue('{data_folder}/{city}个人每日投保量统计-截止至{sop_datetime}.xlsx'),
+      sheet = 1
+    )
+    company_daily_orders_count <- read_excel(
+      glue('{data_folder}/{city}个人每日投保量统计-截止至{sop_datetime}.xlsx'),
+      sheet = 2
+    )
+  }
+} else {
+  daily_orders_count <- read_excel(
+    glue('{data_folder}/{city}个人和企业每日投保量统计-截止至{sop_datetime}.xlsx'),
+    sheet = 1
+  )
+  company_daily_orders_count <- read_excel(
+    glue('{data_folder}/{city}个人和企业每日投保量统计-截止至{sop_datetime}.xlsx'),
+    sheet = 2
+  )
+}
+# 查找公众号推文统计数据
+if( !file.exists(glue('{data_folder}/{city}公众号推文数据统计-截止至{sop_datetime}.xlsx')) ) {
+  stop(glue('Cannot find 公众号推文统计, please check again.'))
+  # https://bookdown.org/yihui/rmarkdown-cookbook/knit-exit.html
+  knitr::knit_exit()
+} else {
+  wechat_tweets_count <- read_excel(
+    glue('{data_folder}/{city}公众号推文数据统计-截止至{sop_datetime}.xlsx'),
+    sheet = 1
+  )
+  district_orders <- read_excel(
+    glue('{data_folder}/{city}公众号推文数据统计-截止至{sop_datetime}.xlsx'),
+    sheet = 4
+  ) %>% 
+    filter(人数 != 0)
+}
+# 查找个人和企业年龄性别统计数据，如果没有则查找个人年龄性别统计数据，如果都没有则报错
+if( !file.exists(glue('{data_folder}/{city}个人和企业年龄性别统计-截止至{sop_datetime}.xlsx')) ) {
+  if( !file.exists(glue('{data_folder}/{city}个人年龄性别统计-截止至{sop_datetime}.xlsx')) ) {
+    stop(glue('Cannot find 年龄性别统计, please check again.'))
+    # https://bookdown.org/yihui/rmarkdown-cookbook/knit-exit.html
+    knitr::knit_exit()
+  } else {
+    age_sex_count <- read_excel(
+      glue('{data_folder}/{city}个人年龄性别统计-截止至{sop_datetime}.xlsx'),
+      sheet = 1
+    )
+    company_age_sex_count <- read_excel(
+      glue('{data_folder}/{city}个人年龄性别统计-截止至{sop_datetime}.xlsx'),
+      sheet = 2
+    )
+  }
+} else {
+  age_sex_count <- read_excel(
+    glue('{data_folder}/{city}个人和企业年龄性别统计-截止至{sop_datetime}.xlsx'),
+    sheet = 1
+  )
+  company_age_sex_count <- read_excel(
+    glue('{data_folder}/{city}个人和企业年龄性别统计-截止至{sop_datetime}.xlsx'),
+    sheet = 2
+  )
+}
+# 查找保司出单情况
+if( !file.exists(glue('{data_folder}/{city}保司出单情况-截止至{sop_datetime}.xlsx')) ) {
+  stop(glue('Cannot find 保司出单情况, please check again.'))
+  # https://bookdown.org/yihui/rmarkdown-cookbook/knit-exit.html
+  knitr::knit_exit()
+} else {
+  agent_orders <- read_excel(
+    glue('{data_folder}/{city}保司出单情况-截止至{sop_datetime}.xlsx'),
+    sheet = 1
+  ) %>% 
+    filter(!公司 %in% c('思派平台', '皖事通', '支付宝')) %>% 
+    mutate(日期 = as.Date(日期, tz = Sys.timezone())) %>% 
+    arrange(公司, 日期)
+}
+```
+
+# 一、概况
+
+```{r}
+total_applicant <- as.numeric(daily_orders_count[daily_orders_count$日期=='总计', '总投保人'])
+total_orders <- as.numeric(daily_orders_count[daily_orders_count$日期=='总计', '总投保量'])
+refund_orders <- as.numeric(daily_orders_count[daily_orders_count$日期=='总计', '总退保量'])
+total_valid_orders <- as.numeric(daily_orders_count[daily_orders_count$日期=='总计', '总净投保量'])
+refund_rate <- round(refund_orders / total_orders, digits = 2)
+daily_avg_orders <- round(total_valid_orders / run_days, digits = 1)
+applicant_avg_orders <- round(total_valid_orders / total_applicant, digits = 1)
+```
+|       `r project_name`于`r start_date`正式发布，现已上线运营`r run_days`天，截止`r end_date`总参保量达到`r as.character(total_orders)`单（已支付）, 净参保量为`r as.character(total_valid_orders)`单，退保率`r refund_rate*100`%，日均参保量`r as.character(daily_avg_orders)`单。
+
+```{r}
+self_num <- wechat_tweets_count %>% filter(分组=='个人净投保量') %>% .$人数 %>% as.numeric()
+com_num <- wechat_tweets_count %>% filter(分组=='企业净投保量') %>% .$人数 %>% as.numeric()
+cash_payment <- wechat_tweets_count %>% 
+  filter(分组 %in% c('微信','支付宝','银联支付')) %>% 
+  .$人数 %>% 
+  as.numeric() %>% 
+  sum()
+med_insure_payment <- ifelse(
+  nrow(filter(wechat_tweets_count, 分组=='医保个账')) != 0,
+  wechat_tweets_count %>% filter(分组=='医保个账') %>% .$人数 %>% as.numeric(),
+  0
+)
+med_insure_describe <- glue("医保个账支付的有{med_insure_payment}单，")
+other_payment <- self_num + com_num - cash_payment - med_insure_payment
+```
+|       个人及企业参保维度，个人参保量为`r as.character(self_num)`单，企业参保量为`r as.character(com_num)`单。
+|       支付方式维度，现金支付的有`r as.character(cash_payment)`单，`r if(med_insure_payment!=0){med_insure_describe}`其他支付方式共`r as.character(other_payment)`单。
+\newpage
+# 二、每日参保走势
+
+```{r}
+# turn daily_orders_count to bar plot data frame 
+df_daily_orders <- daily_orders_count %>% 
+  filter(日期 != '总计') %>% 
+  select(date = 日期, 总投保人, 总投保量) %>% 
+  pivot_longer(cols = c(总投保人, 总投保量), names_to = 'group', values_to = 'num') %>% 
+  mutate(date = as.Date(date, tz = Sys.timezone()))
+# 首日销量
+first_day_orders <- daily_orders_count %>% 
+  filter(日期 != '总计') %>% 
+  select(日期, 总净投保量) %>% 
+  mutate(日期 = as.Date(日期, tz=Sys.timezone())) %>% 
+  arrange(日期) %>% 
+  .[1,] %>% 
+  .$总净投保量
+max_daily_orders <- daily_orders_count %>% 
+  filter(日期 != '总计') %>% 
+  select(日期, 总净投保量) %>% 
+  mutate(日期 = as.Date(日期, tz=Sys.timezone())) %>% 
+  arrange(desc(总净投保量)) %>% 
+  .[1,]
+max_date <- max_daily_orders$日期
+max_daily_orders <- max_daily_orders$总净投保量
+```
+|       `r project_name`上线期间，首日参保量达`r as.character(first_day_orders)`人，单日最高参保量为`r as.character(max_daily_orders)`人（`r as.character(max_date)`），平均每日参保量`r as.character(daily_avg_orders)`单。截止目前的总参保人数为`r as.character(total_applicant)`人，人均投保`r as.character(applicant_avg_orders)`单。
+
+```{r}
+# ggplot
+showtext::showtext_begin()
+ggplot(data = df_daily_orders, aes(x = date, y = num)) +
+  geom_bar(mapping = aes(fill = group), stat = "identity", position = position_dodge()) +
+  theme_bw() +
+  labs(title = glue("每日投保量（截止{end_date}0时）")) +
+  # 对Y轴的值进行平均
+  scale_y_continuous(
+    breaks = seq(
+      from = 0,
+      to = signif(max(df_daily_orders$num) * 1.5, 1),
+      by = signif(max(df_daily_orders$num)/10, 1)
+    )
+  ) +
+  # 对X轴日期进行调整
+  scale_x_date(
+    date_breaks = "5 day", date_labels =  "%m月%d日",
+    limits = c(min(df_daily_orders$date)-5, max(df_daily_orders$date)),
+    expand = c(0,0) # 去掉X轴空白
+  ) +
+  ggsci::scale_fill_jco() +
+  theme(
+      plot.title = element_text(hjust = 0.5), # center plot title
+      axis.text.x = element_text(angle = 90),
+      axis.title.x = element_blank(),
+      axis.title.y = element_blank(),
+      legend.title = element_blank(),
+      legend.position = 'bottom'
+    )
+
+# # 双Y轴图
+# # 百分比和人数差值太大所以需要转换因子
+# trans_factor <- (max(df_daily_orders$num)) / (max(df_daily_orders$总退保率))
+# df_daily_orders$总退保率 <- df_daily_orders$总退保率 * trans_factor
+# # ggplot
+# showtext::showtext_begin()
+# ggplot(data = df_daily_orders, aes(x = date)) +
+#   # bar chart on left y-axis
+#   geom_bar(
+#     aes(y = num, fill = group), 
+#     stat = "identity", 
+#     position = position_dodge()
+#   ) +
+#   # lines and point on right y-axis
+#   geom_line(
+#     data = . %>% select(date, 总退保率) %>% distinct(), 
+#     aes(x = date, y = 总退保率, group = 1), 
+#     size = 2, # 线条粗细
+#     color = 'darkgrey'
+#   ) +
+#   geom_point(
+#     data = . %>% select(date, 总退保率) %>% distinct(), 
+#     aes(x = date, y = 总退保率, group = 1), 
+#     size = 2, 
+#     color = 'black'
+#   ) +
+#   scale_y_continuous(
+#     # 手动修改左侧y-axis数值
+#     breaks = seq(0, max(df_daily_orders$num), by = signif((max(df_daily_orders$num) / 8), 1)),
+#     # 添加右侧y-axis，数值为百分比
+#     sec.axis = sec_axis(
+#       breaks = seq(
+#         from = 0, 
+#         to = max(df_daily_orders$总退保率) / trans_factor, 
+#         by = signif((max(df_daily_orders$总退保率) / trans_factor / 8), 1)
+#       ),
+#       trans = ~ . / trans_factor, # 如果原数值没有乘以转换因子，则这里需要乘以转换因子
+#       name = "总退保率",
+#       labels = scales::label_percent() # 百分比格式
+#     )
+#   ) +
+#   labs(title = glue("每日投保量（截止{end_date}0时）")) +
+#   theme_bw() + 
+#   theme(
+#     plot.title = element_text(hjust = 0.5), # center plot title
+#     axis.text.x = element_text(angle = 90),
+#     axis.title.x = element_blank(),
+#     legend.title = element_blank(),
+#     legend.position = 'bottom'
+#   ) +
+#   # color为描边的颜色，用于line和plot
+#   scale_color_manual(values = c('#003366')) +
+#   # fill为填充的颜色，用于bar
+#   ggsci::scale_fill_jco()
+# showtext::showtext_end()
+```
+
+# 三、各渠道参保数据
+
+|       各渠道每日数据走势见下图：
+```{r}
+# 每家保司每日投保量
+df_company_daily_orders <- company_daily_orders_count %>% 
+  filter(日期 != '合计') %>% 
+  select(date = 日期, group = 保险公司, num = 保司投保量) %>% 
+  mutate(date = as.Date(date, tz = Sys.timezone()))
+# 根据每个X轴对应的Y轴的值，计算Y轴范围
+x_axis_ceiling <- df_company_daily_orders %>% 
+  group_by(date) %>% 
+  mutate(ceiling = sum(`num`)) %>% 
+  ungroup() %>% 
+  .$ceiling
+# ggplot
+showtext::showtext_begin()
+ggplot(data = df_company_daily_orders, aes(x = date, y = num)) + 
+  geom_bar(mapping = aes(fill = group), stat = "identity") +
+  theme_bw() +
+  labs(title = glue("各渠道每日投保量（截止{end_date}0时）")) +
+  # 对Y轴的值进行平均
+  scale_y_continuous(
+    breaks = seq(
+      from = 0, #signif(min(df_company_daily_orders$num)),
+      to = signif(max(x_axis_ceiling) * 1.5, 1),
+      by = signif(max(x_axis_ceiling)/10, 1)
+    )
+  ) +
+  # 对X轴日期进行调整
+  scale_x_date(
+    date_breaks = "5 day", date_labels =  "%m月%d日", 
+    limits = c(min(df_company_daily_orders$date)-5, max(df_company_daily_orders$date)),
+    expand = c(0,0) # 去掉X轴空白
+  ) +
+  ggsci::scale_fill_jco() +
+  theme(
+      plot.title = element_text(hjust = 0.5), # center plot title
+      axis.text.x = element_text(angle = 90),
+      axis.title.x = element_blank(),
+      axis.title.y = element_blank(),
+      legend.title = element_blank(),
+      legend.position = 'bottom'
+    )
+showtext::showtext_end()
+```
+
+# 四、个人参保数据
+
+### 4.1 不同年龄段和不同性别占比
+
+```{r}
+age_gorup1 <- wechat_tweets_count %>% 
+  filter(分组 %in% c('0岁','1-20岁','21-40岁','41-60岁','61-80岁','81-100岁','>100岁')) %>% 
+  mutate(人数 = as.numeric(人数)) %>% 
+  arrange(desc(人数)) %>% 
+  .[1,]
+age_young <- wechat_tweets_count %>% 
+  filter(分组 == '1-20岁') %>% 
+  mutate(人数 = as.numeric(人数))
+age_0 <- wechat_tweets_count %>% 
+  filter(分组 == '0岁') %>% 
+  mutate(人数 = as.numeric(人数))
+age_0_birth <- wechat_tweets_count %>% 
+  filter(分组 == '年龄最小参保人') %>% 
+  .$人数 %>% 
+  str_replace('参保年龄：(.*天)；.*', '\\1')
+age_80 <- wechat_tweets_count %>% 
+  filter(分组 == '80岁及以上') %>% 
+  mutate(人数 = as.numeric(人数))
+age_100_birth <- wechat_tweets_count %>% 
+  filter(分组 == '年龄最大参保人') %>% 
+  .$人数 %>% 
+  str_replace('参保年龄：(.*岁)；.*', '\\1')
+```
+|       保障覆盖全年龄段，参保率最高的年龄段是`r as.character(age_gorup1$分组)`，一共有`r as.character(age_gorup1$人数)`人，占总参保人数的`r as.character(age_gorup1$占比)`。
+|       儿童及青少年（1-20岁）参保人数达`r as.character(age_young$人数)`人，占比`r as.character(age_young$占比)`，另有`r as.character(age_0$人数)`名0岁儿童，年龄最小的参保人是在`r as.character(age_0_birth)`投保的。80岁及以上有`r as.character(age_80$人数)`人参保，占比`r as.character(age_80$占比)`，其中年龄最大的参保人已经`r as.character(age_100_birth)`。
+
+```{r}
+# 项目整体的年龄和性别分布（双Y轴图）
+df_age_sex <- age_sex_count %>% 
+  filter(年龄 != '总数') %>% 
+  select(age = 年龄, 男性人数, 女性人数, percentage = 不同年龄段人数占比) %>% 
+  # 修改原文件的占比格式
+  mutate(percentage = str_replace(percentage, '%', '')) %>%
+  mutate(percentage = round(as.numeric(percentage)/100, 4)) %>% 
+  # 修改原文件的年龄格式
+  mutate(age = str_replace(age, '([0-9][0-9]?[0-9]?)-.*', '\\1')) %>% 
+  # 添加分组
+  mutate(
+    年龄分组 = case_when(
+      age == '0' | age %in% as.character(c(1:10)) ~ '0-10岁',
+      age %in% as.character(c(11:20)) ~ '11-20岁',
+      age %in% as.character(c(21:30)) ~ '21-30岁',
+      age %in% as.character(c(31:40)) ~ '31-40岁',
+      age %in% as.character(c(41:50)) ~ '41-50岁',
+      age %in% as.character(c(51:60)) ~ '51-60岁',
+      age %in% as.character(c(61:70)) ~ '61-70岁',
+      age %in% as.character(c(71:80)) ~ '71-80岁',
+      age %in% as.character(c(81:90)) ~ '81-90岁',
+      age %in% as.character(c(91:100)) | age == '>100' ~ '91-100岁以上',
+    )
+  ) %>% 
+  select(-age) %>% 
+  # 加入factor以便作图时固定X轴
+  mutate(
+    年龄分组 = factor(
+      年龄分组, 
+      levels = c('0-10岁', '11-20岁', '21-30岁', '31-40岁', '41-50岁', '51-60岁', '61-70岁',
+                 '71-80岁', '81-90岁', '91-100岁以上')
+    )
+  ) %>% 
+  # 将百分比按分组相加
+  group_by(年龄分组) %>% 
+  mutate(占比 = sum(percentage)) %>% 
+  ungroup() %>% 
+  select(-percentage) %>% 
+  # 转换成长表格，将左右Y轴所需的值合到一个column
+  # one column specifying variable, one column specifying value
+  pivot_longer(
+    cols = c(男性人数, 女性人数), names_to = '男女', values_to = '人数'
+  )
+# 百分比和人数差值太大所以需要转换因子
+trans_factor <- (max(df_age_sex$人数)) / (max(df_age_sex$占比))
+df_age_sex$占比 <- df_age_sex$占比 * trans_factor
+# ggplot
+showtext::showtext_begin()
+ggplot(data = df_age_sex, aes(x = 年龄分组)) +
+  # bar chart on left y-axis
+  geom_bar(
+    #data = df_age_sex %>% filter(y_var %in% c('男性人数', '女性人数')), 
+    aes(y = 人数, fill = 男女), 
+    stat = "identity", 
+    position = position_dodge()
+  ) +
+  # lines and point on right y-axis
+  geom_line(
+    data = . %>% select(年龄分组, 占比) %>% distinct(), 
+    aes(x = 年龄分组, y = 占比, group = 1), 
+    size = 2, # 线条粗细
+    color = 'darkgrey'
+  ) +
+  geom_point(
+    data = . %>% select(年龄分组, 占比) %>% distinct(), 
+    aes(x = 年龄分组, y = 占比, group = 1), 
+    size = 2, 
+    color = 'black'
+  ) +
+  scale_y_continuous(
+    # 手动修改左侧y-axis数值
+    breaks = seq(0, max(df_age_sex$人数), by = signif((max(df_age_sex$人数) / 8), 1)),
+    # 添加右侧y-axis，数值为百分比
+    sec.axis = sec_axis(
+      breaks = seq(
+        from = 0, 
+        to = max(df_age_sex$占比) / trans_factor, 
+        by = signif((max(df_age_sex$占比) / trans_factor / 8), 1)
+      ),
+      trans = ~ . / trans_factor, # 如果原数值没有乘以转换因子，则这里需要乘以转换因子
+      name = "该年龄段人数占总人数比例",
+      labels = scales::label_percent() # 百分比格式
+    )
+  ) +
+  labs(title = glue("投保人年龄分布（截止{end_date}0时）")) +
+  theme_bw() + 
+  theme(
+    plot.title = element_text(hjust = 0.5), # center plot title
+    axis.text.x = element_text(angle = 90),
+    axis.title.x = element_blank(),
+    legend.title = element_blank(),
+    legend.position = 'bottom'
+  ) +
+  # color为描边的颜色，用于line和plot
+  scale_color_manual(values = c('#003366')) +
+  # fill为填充的颜色，用于bar
+  ggsci::scale_fill_jco()
+showtext::showtext_end()
+```
+
+### 4.2 各区域参保占比
+
+```{r}
+district_no_others <- district_orders %>% filter(分组 != '其他地区') %>% .[1:3,]
+```
+|       在已参保的用户中，按身份证前6位分区域统计，投保量最高的前三个区域分别是`r as.character(district_no_others[1,1])`（占比约`r as.character(district_no_others[1,3])`）、`r as.character(district_no_others[2,1])`（占比约`r as.character(district_no_others[2,3])`）、`r as.character(district_no_others[3,1])`（占比约`r as.character(district_no_others[3,3])`）。
+
+```{r, fig.height=3}
+df_district_pie_chart <- district_orders %>% 
+  mutate(占比 = str_replace(占比, '%', '')) %>% 
+  mutate(占比 = as.numeric(占比)/100) %>% 
+  select(区域 = 分组, 占比) %>% 
+  arrange(占比) %>% 
+  mutate(区域 = factor(区域, levels = .$区域))
+# annotation在Y轴的位置
+for(i in 2:nrow(df_district_pie_chart)) {
+  df_district_pie_chart[i, 'y_text'] <- 
+    sum(df_district_pie_chart$占比) - 
+    sum(df_district_pie_chart[1:(i-1), '占比']) - 
+    df_district_pie_chart[i, '占比'] * 0.5
+}
+df_district_pie_chart[1,3] <- 1 - df_district_pie_chart[1,2] * 0.5
+showtext::showtext_begin()
+ggplot(df_district_pie_chart, aes(x = '', y = 占比, fill = 区域)) + 
+  geom_bar(stat = "identity", width = 1) + 
+  coord_polar('y', start = 0) + 
+  scale_fill_manual( values = ggsci::pal_simpsons()(length(unique(df_district_pie_chart$区域))) ) + 
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5), # title居中
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    panel.border = element_blank(),
+    panel.grid = element_blank(),
+    axis.ticks = element_blank(),
+    axis.text.x = element_blank(), # 隐藏Y轴的值
+    legend.title = element_blank(), # 隐藏legend标题
+    legend.position = 'right'
+  ) + 
+  labs(title = '各区域参保量占比', x = '', y = '') + 
+  #geom_text(aes(y = y_text, label = percent(占比)), size = 3) +
+  ggrepel::geom_label_repel(aes(y = y_text, label = percent(占比)))
+showtext::showtext_end()
+```
+
+# 五、业务员出单情况
+
+```{r}
+agent_orders_newest <- agent_orders %>% 
+  group_by(公司) %>% 
+  slice_tail() %>% 
+  select(公司, contains('累计')) %>% 
+  ungroup()
+total_agents <- sum(agent_orders_newest$累计注册代理人人数)
+avg_orders_total <- round(
+  sum(agent_orders_newest$累计投保量) / sum(agent_orders_newest$累计注册代理人人数), 1
+)
+most_agent <- agent_orders_newest %>% arrange(累计注册代理人人数) %>% slice_tail()
+most_avg_orders <- agent_orders_newest %>% arrange(累计人均出单量) %>% slice_tail()
+```
+|       在`r project_name`项目中，总共有`r as.character(total_agents)`名注册的业务员，人均出单量为`r as.character(avg_orders_total)`单。其中`r as.character(most_agent$公司)`注册业务员数量最多，共有`r as.character(most_agent$累计注册代理人人数)`人；业务员人均出单量最高的保司是`r as.character(most_avg_orders$公司)`，人均出单数达到`r as.character(most_avg_orders$累计人均出单量)`单/人。
+
+```{r}
+# 先找到Y轴排序
+company_order <- agent_orders_newest %>% arrange(累计注册代理人人数) %>% .$公司
+agent_orders_newest <- mutate(agent_orders_newest, 公司 = factor(公司, levels = company_order))
+# 累计注册、出单代理人人数
+agent_orders_newest_left <- agent_orders_newest %>% 
+  mutate(注册未出单 = 累计注册代理人人数 - 累计出单代理人人数) %>% 
+  select(公司, 注册未出单, 出单业务员 = 累计出单代理人人数) %>% 
+  pivot_longer(
+    cols = c('注册未出单', '出单业务员'), 
+    names_to = '业务员',
+    values_to = '人数'
+  )
+p_left <- ggplot(agent_orders_newest_left, aes(x = 公司)) +
+  geom_bar(aes(y = 人数, fill = 业务员), stat = "identity") +
+  ggtitle('累计注册人数及出单人数') +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5), # center plot title
+    legend.position = 'bottom',
+    legend.title = element_blank(),
+    axis.title.x = element_blank(), 
+    # 隐藏左图的Y轴
+    axis.title.y = element_blank(), 
+    axis.text.y = element_blank(), 
+    axis.ticks.y = element_blank()
+  ) +
+  # fill为填充的颜色，用于bar
+  ggsci::scale_fill_jco() +
+  scale_y_reverse() + # 将Y轴180度旋转，即0在上方
+  coord_flip()
+# 人均出单数
+agent_orders_newest_right <- agent_orders_newest %>% select(公司, 累计人均出单量)
+p_right <- ggplot(agent_orders_newest_right, aes(x = 公司)) +
+  geom_bar(aes(y = 累计人均出单量, fill = '累计人均出单量'), stat = "identity") +
+  xlab(NULL) +
+  ggtitle('人均出单数') +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5), # center plot title
+    legend.position = 'bottom',
+    legend.title = element_blank(),
+    axis.title.x = element_blank()
+  ) +
+  # fill为填充的颜色，用于bar
+  ggsci::scale_fill_lancet() +
+  coord_flip()
+# 合体
+showtext::showtext_begin()
+cowplot::plot_grid(p_left, p_right, ncol = 2, align = 'h')
+showtext::showtext_end()
+```
