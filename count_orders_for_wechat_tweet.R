@@ -11,6 +11,7 @@ count_orders_for_wechat_tweet <- function(
   city,
   df_orders,
   district_info,
+  district_category = 'district',
   group_district_orders_by_id_no = TRUE, # 用【身份证前6位】分组进行区县统计
   group_district_orders_by_sale_channel = FALSE, # 用【销售渠道】分组进行区县统计
   drop_refunds = TRUE,
@@ -76,11 +77,11 @@ count_orders_for_wechat_tweet <- function(
       col_automatic_deduction = !!col_automatic_deduction
     ) %>% 
     mutate(
-      col_datetime_created = as.POSIXct(col_date_created, tz = Sys.timezone()),
-      col_datetime_updated = as.POSIXct(col_date_updated, tz = Sys.timezone())
+      col_datetime_created = as.POSIXct(col_date_created, tz = 'Asia/Shanghai'),
+      col_datetime_updated = as.POSIXct(col_date_updated, tz = 'Asia/Shanghai')
     ) %>% 
     # 转换日期格式
-    mutate(col_date_created = as.Date(col_date_created, tz = Sys.timezone()))
+    mutate(col_date_created = as_date(col_date_created))
   if(have_relationship) {
     df_orders <- df_orders %>% rename(col_relation_ship = !!col_relation_ship)
   }
@@ -99,8 +100,8 @@ count_orders_for_wechat_tweet <- function(
   if(is.na(start_time)) { start_time <- min(df_orders[['col_date_created']]) }
   # 按input日期筛选订单（注意input日期格式）
   df_orders <- df_orders %>% 
-    filter(col_datetime_created >= as.POSIXct(start_time) & 
-             col_datetime_created <= as.POSIXct(end_time))
+    filter(col_datetime_created >= as.POSIXct(start_time, tz = 'Asia/Shanghai') & 
+             col_datetime_created <= as.POSIXct(end_time, tz = 'Asia/Shanghai'))
   
   # 去掉退单 ----
   #order_type <- '个人和企业'
@@ -120,38 +121,37 @@ count_orders_for_wechat_tweet <- function(
   df_orders <- df_orders %>% 
     # 转换日期格式
     mutate(
-      col_date_created = as.Date(col_date_created, tz = Sys.timezone()),
-      col_birthday = as.Date(col_birthday)
+      col_date_created = as_date(col_date_created),
+      col_birthday = as_date(col_birthday)
     ) %>% 
     # 生成信息，注意顺序
     mutate(
       age = as.numeric(col_date_created - col_birthday), # 参保时的年龄
-      district = str_replace(col_id_no, '(\\d\\d\\d\\d\\d\\d).*', '\\1'), # 地区
       birthday_year = year(col_birthday), # 生肖
       birthday_month_day = format(col_birthday, "%m-%d"), # 星座
       star_sign = case_when(
-        birthday_month_day >= format(as.Date('2021-01-21'), '%m-%d') & 
-          birthday_month_day <= format(as.Date('2021-02-19'), '%m-%d') ~ '水瓶座',
-        birthday_month_day >= format(as.Date('2021-02-20'), '%m-%d') & 
-          birthday_month_day <= format(as.Date('2021-03-20'), '%m-%d') ~ '双鱼座',
-        birthday_month_day >= format(as.Date('2021-03-21'), '%m-%d') & 
-          birthday_month_day <= format(as.Date('2021-04-20'), '%m-%d') ~ '白羊座',
-        birthday_month_day >= format(as.Date('2021-04-21'), '%m-%d') & 
-          birthday_month_day <= format(as.Date('2021-05-21'), '%m-%d') ~ '金牛座',
-        birthday_month_day >= format(as.Date('2021-05-22'), '%m-%d') & 
-          birthday_month_day <= format(as.Date('2021-06-21'), '%m-%d') ~ '双子座',
-        birthday_month_day >= format(as.Date('2021-06-22'), '%m-%d') & 
-          birthday_month_day <= format(as.Date('2021-07-23'), '%m-%d') ~ '巨蟹座',
-        birthday_month_day >= format(as.Date('2021-07-24'), '%m-%d') & 
-          birthday_month_day <= format(as.Date('2021-08-23'), '%m-%d') ~ '狮子座',
-        birthday_month_day >= format(as.Date('2021-08-24'), '%m-%d') & 
-          birthday_month_day <= format(as.Date('2021-09-23'), '%m-%d') ~ '处女座',
-        birthday_month_day >= format(as.Date('2021-09-24'), '%m-%d') & 
-          birthday_month_day <= format(as.Date('2021-10-23'), '%m-%d') ~ '天秤座',
-        birthday_month_day >= format(as.Date('2021-10-24'), '%m-%d') & 
-          birthday_month_day <= format(as.Date('2021-11-22'), '%m-%d') ~ '天蝎座',
-        birthday_month_day >= format(as.Date('2021-11-23'), '%m-%d') & 
-          birthday_month_day <= format(as.Date('2021-12-22'), '%m-%d') ~ '射手座',
+        birthday_month_day >= format(as_date('2021-01-21'), '%m-%d') & 
+          birthday_month_day <= format(as_date('2021-02-19'), '%m-%d') ~ '水瓶座',
+        birthday_month_day >= format(as_date('2021-02-20'), '%m-%d') & 
+          birthday_month_day <= format(as_date('2021-03-20'), '%m-%d') ~ '双鱼座',
+        birthday_month_day >= format(as_date('2021-03-21'), '%m-%d') & 
+          birthday_month_day <= format(as_date('2021-04-20'), '%m-%d') ~ '白羊座',
+        birthday_month_day >= format(as_date('2021-04-21'), '%m-%d') & 
+          birthday_month_day <= format(as_date('2021-05-21'), '%m-%d') ~ '金牛座',
+        birthday_month_day >= format(as_date('2021-05-22'), '%m-%d') & 
+          birthday_month_day <= format(as_date('2021-06-21'), '%m-%d') ~ '双子座',
+        birthday_month_day >= format(as_date('2021-06-22'), '%m-%d') & 
+          birthday_month_day <= format(as_date('2021-07-23'), '%m-%d') ~ '巨蟹座',
+        birthday_month_day >= format(as_date('2021-07-24'), '%m-%d') & 
+          birthday_month_day <= format(as_date('2021-08-23'), '%m-%d') ~ '狮子座',
+        birthday_month_day >= format(as_date('2021-08-24'), '%m-%d') & 
+          birthday_month_day <= format(as_date('2021-09-23'), '%m-%d') ~ '处女座',
+        birthday_month_day >= format(as_date('2021-09-24'), '%m-%d') & 
+          birthday_month_day <= format(as_date('2021-10-23'), '%m-%d') ~ '天秤座',
+        birthday_month_day >= format(as_date('2021-10-24'), '%m-%d') & 
+          birthday_month_day <= format(as_date('2021-11-22'), '%m-%d') ~ '天蝎座',
+        birthday_month_day >= format(as_date('2021-11-23'), '%m-%d') & 
+          birthday_month_day <= format(as_date('2021-12-22'), '%m-%d') ~ '射手座',
         TRUE ~ '摩羯座'
       ),
       zodiac = case_when(
@@ -169,6 +169,15 @@ count_orders_for_wechat_tweet <- function(
         (birthday_year %% 12) == 11 ~ "属羊"
       )
     )
+  if(district_category == 'province') {
+    # 出生地的省份
+    df_orders <- df_orders %>% 
+      mutate(district = str_replace(col_id_no, '(\\d\\d).*', '\\1'))
+  } else {
+    # 出生地的市区
+    df_orders <- df_orders %>% 
+      mutate(district = str_replace(col_id_no, '(\\d\\d\\d\\d\\d\\d).*', '\\1'))
+  }
   
   # Sheet 1: ----
   output_table <- tibble(
@@ -304,7 +313,7 @@ count_orders_for_wechat_tweet <- function(
     round(nrow(filter(df_orders, col_id_type %in% c('护照'))) / nrow(df_orders), 3)
   
   # 和项目同一天生日及生日当天购买 ----
-  start_month_day <- format(as.Date(start_time, tz = Sys.timezone()), "%m-%d")
+  start_month_day <- format(as_date(start_time), "%m-%d")
   # 项目上线当天生日的参保用户
   output_table[
     output_table$分组 == "和项目同一天生日", colnames(output_table) == '人数'
@@ -536,6 +545,7 @@ count_orders_for_wechat_tweet <- function(
   output_table <- bind_rows(output_table, zodiac)
   
   # 各区参保量 ----
+  # 判断根据市区统计还是根据省份统计
   # 添加地区
   district_orders <- tibble('分组' = 'a', '人数' = 0, '占比' = 1) %>% .[-1, ]
   # 根据身份证前6位区分区域
@@ -629,7 +639,8 @@ count_orders_for_wechat_tweet <- function(
       select(-col_order_item_id) %>% 
       distinct() %>% 
       mutate(占比 = 人数/sum(人数)) %>% 
-      rename(分组 = col_pay_way)
+      rename(分组 = col_pay_way) %>% 
+      mutate(分组 = str_c(分组, '支付'))
     output_table <- bind_rows(output_table, payway_table)
   }
   
@@ -642,16 +653,29 @@ count_orders_for_wechat_tweet <- function(
     # 个单模式有记录投保关系
     self_orders <- filter(df_orders, col_group == 'self')
     # 为自己参保
-    output_table[output_table$分组 == "为自己投保", colnames(output_table) == '人数'] <- NA
-    output_table[output_table$分组 == "为自己投保", colnames(output_table) == '占比'] <- 
+    output_table[
+      # 注意表格中不能有NA，否则subset data frame会报错，下同
+      output_table$分组 == "为自己投保" & !is.na(output_table$分组),
+      colnames(output_table) == '人数'
+    ] <- NA
+    output_table[
+      output_table$分组 == "为自己投保" & !is.na(output_table$分组), 
+      colnames(output_table) == '占比'
+    ] <- 
       round(
         length(which(self_orders$col_relation_ship == '本人')) / 
           length(self_orders$col_order_item_id), 
         3
       )
     # 为家人参保
-    output_table[output_table$分组 == "为家人投保", colnames(output_table) == '人数'] <- NA
-    output_table[output_table$分组 == "为家人投保", colnames(output_table) == '占比'] <- 
+    output_table[
+      output_table$分组 == "为家人投保" & !is.na(output_table$分组), 
+      colnames(output_table) == '人数'
+    ] <- NA
+    output_table[
+      output_table$分组 == "为家人投保" & !is.na(output_table$分组), 
+      colnames(output_table) == '占比'
+    ] <- 
       round(
         length(which(self_orders$col_relation_ship != '本人')) / 
           length(self_orders$col_order_item_id), 
@@ -663,12 +687,24 @@ count_orders_for_wechat_tweet <- function(
     # custom_id的freq = 1的当作为自己投保，忽略其他情况
     x <- df_orders$col_customer_id %>% table() %>% as.data.frame()
     # 为家人参保
-    output_table[output_table$分组 == "为家人投保", colnames(output_table) == '人数'] <- NA
-    output_table[output_table$分组 == "为家人投保", colnames(output_table) == '占比'] <- 
+    output_table[
+      output_table$分组 == "为家人投保" & !is.na(output_table$分组), 
+      colnames(output_table) == '人数'
+    ] <- NA
+    output_table[
+      output_table$分组 == "为家人投保" & !is.na(output_table$分组), 
+      colnames(output_table) == '占比'
+    ] <- 
       round(length(which(x$Freq >= 2)) / length(x$.), 3)
     # 为自己参保
-    output_table[output_table$分组 == "为自己投保", colnames(output_table) == '人数'] <- NA
-    output_table[output_table$分组 == "为自己投保", colnames(output_table) == '占比'] <- 
+    output_table[
+      output_table$分组 == "为自己投保" & !is.na(output_table$分组), 
+      colnames(output_table) == '人数'
+    ] <- NA
+    output_table[
+      output_table$分组 == "为自己投保" & !is.na(output_table$分组), 
+      colnames(output_table) == '占比'
+    ] <- 
       round(length(which(x$Freq == 1)) / length(x$.), 3)
   }
   
@@ -683,12 +719,18 @@ count_orders_for_wechat_tweet <- function(
     arrange(desc(col_date_created)) %>%  # 如果有不止一人，筛选参保日期最晚的
     .[1, ]
   # 填入表格
-  output_table[output_table$分组 == "年龄最小参保人", colnames(output_table) == '人数'] <- 
+  output_table[
+    output_table$分组 == "年龄最小参保人" & !is.na(output_table$分组), 
+    colnames(output_table) == '人数'
+  ] <- 
     paste0(
       "参保年龄：出生第", age_min$age, "天；出生日期：", age_min$col_birthday, "；",
       "性别：", ifelse(age_min$col_sex == '女', '女性', '男性')
     )
-  output_table[output_table$分组 == "年龄最小参保人", colnames(output_table) == '占比'] <- NA
+  output_table[
+    output_table$分组 == "年龄最小参保人" & !is.na(output_table$分组), 
+    colnames(output_table) == '占比'
+  ] <- NA
   
   # 年龄最大参保人
   max_age <- max(na.omit(df_orders$age))
@@ -698,12 +740,18 @@ count_orders_for_wechat_tweet <- function(
     .[1, ]
   
   # 填入表格
-  output_table[output_table$分组 == "年龄最大参保人", colnames(output_table) == '人数'] <- 
+  output_table[
+    output_table$分组 == "年龄最大参保人" & !is.na(output_table$分组), 
+    colnames(output_table) == '人数'
+  ] <- 
     paste0(
       "参保年龄：", round(age_max$age / 365), "岁；出生日期：", age_max$col_birthday, "；",
       "性别：", ifelse(age_max$col_sex == '女', '女性', '男性')
     )
-  output_table[output_table$分组 == "年龄最大参保人", colnames(output_table) == '占比'] <- NA
+  output_table[
+    output_table$分组 == "年龄最大参保人" & !is.na(output_table$分组), 
+    colnames(output_table) == '占比'
+  ] <- NA
   
   # Sheet 2: 参保用户姓氏数量 ----
   df_name <- df_orders %>% 
@@ -744,7 +792,7 @@ count_orders_for_wechat_tweet <- function(
   df_hour <- df_orders %>% 
     select(col_datetime_created) %>% 
     mutate(
-      col_date = as.Date(col_datetime_created, tz = Sys.timezone()),
+      col_date = as_date(col_datetime_created),
       col_hour = str_replace(col_datetime_created, "....-..-..\\s(..)\\:.*", "\\1"),
       col_total_count = length(col_datetime_created)
     )
@@ -823,14 +871,14 @@ count_orders_for_wechat_tweet <- function(
   #   if( !dir.exists(paste0(sop_dir, '/', city)) ) {
   #     dir.create(paste0(sop_dir, '/', city))
   #   }
-  #   if( !dir.exists(paste0(sop_dir, '/', city, '/', as.Date(end_time, tz = Sys.timezone()))) ) {
-  #     dir.create(paste0(sop_dir, '/', city, '/', as.Date(end_time, tz = Sys.timezone())))
+  #   if( !dir.exists(paste0(sop_dir, '/', city, '/', as_date(end_time))) ) {
+  #     dir.create(paste0(sop_dir, '/', city, '/', as_date(end_time)))
   #   }
   #   # 输出excel
   #   saveWorkbook(
   #     df_orders_wb, 
   #     file = paste0(
-  #       sop_dir, '/', city, '/', as.Date(end_time, tz = Sys.timezone()), '/', 
+  #       sop_dir, '/', city, '/', as_date(end_time), '/', 
   #       city, '投保数据统计-截止至', 
   #       lubridate::year(end_time), '年', 
   #       lubridate::month(end_time), '月', 
@@ -859,8 +907,8 @@ count_orders_for_wechat_tweet <- function(
     if( !dir.exists(paste0(sop_dir, '/', city)) ) {
       dir.create(paste0(sop_dir, '/', city))
     }
-    if( !dir.exists(paste0(sop_dir, '/', city, '/', as.Date(end_time, tz = Sys.timezone()))) ) {
-      dir.create(paste0(sop_dir, '/', city, '/', as.Date(end_time, tz = Sys.timezone())))
+    if( !dir.exists(paste0(sop_dir, '/', city, '/', as_date(end_time))) ) {
+      dir.create(paste0(sop_dir, '/', city, '/', as_date(end_time)))
     }
     # Sheet1
     colnames(district_orders)[colnames(district_orders) == '分组'] <- '区域'
@@ -883,7 +931,7 @@ count_orders_for_wechat_tweet <- function(
     saveWorkbook(
       wb, 
       file = paste0(
-        sop_dir, '/', city, '/', as.Date(end_time, tz = Sys.timezone()), '/', 
+        sop_dir, '/', city, '/', as_date(end_time), '/', 
         '区域投保量统计-', method_name, '-截止至', 
         lubridate::year(end_time), '年', 
         lubridate::month(end_time), '月', 

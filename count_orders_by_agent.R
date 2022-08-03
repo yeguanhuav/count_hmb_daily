@@ -72,10 +72,10 @@ count_orders_by_agent <- function(
       col_channel_id = !!col_channel_id
     ) %>% 
     mutate(
-      col_date_created = as.Date(col_date_created, tz = Sys.timezone()),
-      col_date_updated = as.Date(col_date_updated, tz = Sys.timezone())
+      col_date_created = as_date(col_date_created),
+      col_date_updated = as_date(col_date_updated)
     )
-  # 如果含有自动扣费的订单，要去掉
+  # 如果提供了自动扣费的字段，则认为是要去掉自动扣费订单
   if(!is.na(col_is_automatic_deduction)) {
     df_orders <- df_orders %>% 
       rename(col_is_automatic_deduction = !!col_is_automatic_deduction) %>% 
@@ -86,8 +86,8 @@ count_orders_by_agent <- function(
   
   # 开始日期和结束日期
   if(is.na(start_time)) { start_time <- min(df_orders[['col_date_created']]) }
-  start_date <- as.Date(start_time, tz = Sys.timezone())
-  end_date <- as.Date(end_time, tz = Sys.timezone())
+  start_date <- as_date(start_time)
+  end_date <- as_date(end_time)
   
   # 统计退单量 ----
   #order_type <- '个人和企业'
@@ -190,7 +190,7 @@ count_orders_by_agent <- function(
     group_by_date <- c(start_date)
     # end_date的前一天为终止日期
     for(i in 1:(as.numeric(difftime(end_date, start_date)))) {
-      group_by_date <- c(group_by_date, as.character(start_date + i))
+      group_by_date <- unique(c(group_by_date, as.character(start_date + i)))
     }
     group_by_date <- setNames(object = group_by_date, nm = group_by_date)
   } else {
@@ -206,11 +206,11 @@ count_orders_by_agent <- function(
       # 按日期累计的退单
       refund_orders_by_date_tmp <- refund_orders_tmp %>% 
         # 累计时要加上等于号，才能把当天包含进去
-        filter(col_date_updated <= as.Date(group_by_date[j]))
+        filter(col_date_updated <= as_date(group_by_date[j]))
       # 按日期累计的投保
       df_orders_by_date_tmp <- df_orders_tmp %>% 
         # 累计时要加上等于号，才能把当天包含进去
-        filter(col_date_created <= as.Date(group_by_date[j])) %>% 
+        filter(col_date_created <= as_date(group_by_date[j])) %>% 
         mutate(
           # 添加时间分组
           date_group = names(group_by_date)[j],
@@ -241,7 +241,7 @@ count_orders_by_agent <- function(
       if(!group_dates) {
         # 退单
         refund_orders_by_date_tmp <- refund_orders_tmp %>% 
-          filter(col_date_updated == as.Date(group_by_date[j]))
+          filter(col_date_updated == as_date(group_by_date[j]))
         # 投保
         df_orders_by_date_tmp <- df_orders_tmp %>% 
           filter(col_date_created == as.character(group_by_date[j])) %>% 
@@ -318,7 +318,7 @@ count_orders_by_agent <- function(
     } else if(!group_dates) {
       # named vector需要用as.character转换成普通的vector
       #df_plot <- df_plot %>% mutate(日期 = factor(日期, levels = as.character(group_by_date)))
-      df_plot <- df_plot %>% mutate(日期 = as.Date(日期, tz = Sys.timezone()))
+      df_plot <- df_plot %>% mutate(日期 = as_date(日期))
     }
     p <- ggplot(data = df_plot, aes(x = 日期, y = y_val)) +
       # bar chart on left y-axis
@@ -441,7 +441,7 @@ count_orders_by_agent <- function(
     }
   }
   
-  # 未出单代理人统计 ----
+  # 业务员出单明细 ----
   if(count_agent) {
     if( (!is.null(df_channel_cls1)) & (!is.null(df_channel_cls123)) ) {
       # Rename columns in df_channel_cls1
@@ -451,7 +451,7 @@ count_orders_by_agent <- function(
           col_company_channel_cls1 = !!col_company_channel_cls1
         ) %>% 
         # 去掉多余的列，减少内存使用
-        select(col_channel_cls1_channel_cls1, col_company_channel_cls1)
+        select(contains('col_'))
       
       # Rename columns in df_channel_cls123
       df_channel_cls123 <- df_channel_cls123 %>% 
@@ -463,17 +463,10 @@ count_orders_by_agent <- function(
           col_channel_cls3_channel_cls123 = !!col_channel_cls3_channel_cls123
         ) %>% 
         mutate(
-          col_channel_date_created_cls123 = as.Date(col_channel_date_created_cls123, 
-                                                    tz = Sys.timezone())
+          col_channel_date_created_cls123 = as_date(col_channel_date_created_cls123)
         ) %>% 
         # 去掉多余的列，减少内存使用
-        select(
-          col_channel_id_channel_cls123,
-          col_channel_date_created_cls123,
-          col_channel_cls1_channel_cls123,
-          col_channel_cls2_channel_cls123,
-          col_channel_cls3_channel_cls123
-        )
+        select(contains('col_'))
       
       # 添加代理人的统计，只统计三级渠道
       all_agent <- inner_join(
@@ -517,7 +510,7 @@ count_orders_by_agent <- function(
           tmp_all_agent <- all_agent %>% 
             filter(col_company_channel_cls1 == !!i & 
                      # 累计时要加上等于号，才能把当天包含进去
-                     col_channel_date_created_cls123 <= as.Date(group_by_date[j]))
+                     col_channel_date_created_cls123 <= as_date(group_by_date[j]))
           # 不要将人数进行相加，如果同一company有多个sku_code需要分开统计，如sku_code1对应
           # companyA-1，sku_code2对应companyA-2
           df_save[
@@ -528,7 +521,7 @@ count_orders_by_agent <- function(
           tmp_agent_orders <- df_orders %>% 
             filter(col_company == !!i & 
                      # 累计时加上等于号，才能把当天包含进去
-                     col_date_created <= as.Date(group_by_date[j]))
+                     col_date_created <= as_date(group_by_date[j]))
           # 再统计每个代理人出单量
           tmp_agent_orders <- tmp_agent_orders %>% 
             # 加上代理人信息
@@ -698,8 +691,8 @@ count_orders_by_agent <- function(
     if( !dir.exists(paste0(sop_dir, '/', city)) ) {
       dir.create(paste0(sop_dir, '/', city))
     }
-    if( !dir.exists(paste0(sop_dir, '/', city, '/', as.Date(end_time, tz = Sys.timezone()))) ) {
-      dir.create(paste0(sop_dir, '/', city, '/', as.Date(end_time, tz = Sys.timezone())))
+    if( !dir.exists(paste0(sop_dir, '/', city, '/', as_date(end_time))) ) {
+      dir.create(paste0(sop_dir, '/', city, '/', as_date(end_time)))
     }
   }
   # 保存表格
@@ -790,4 +783,154 @@ count_orders_by_agent <- function(
     保司出单情况统计 = (df_save %>% group_by(公司) %>% arrange(日期, .by_group = T))
   )
   return(output_list)
+}
+
+count_orders_by_channel_id_daily <- function(
+  city, 
+  start_time = NA,
+  end_time = Sys.time(),
+  sop_datetime = NA,
+  df_orders,
+  col_order_item_id = 'order_item_id',
+  col_date_created = 'date_created',
+  col_policy_order_status = 'policy_order_status',
+  col_channel_cls1 = 'channel_cls1',
+  col_channel_cls2 = 'channel_cls2',
+  col_channel_cls3 = 'channel_cls3',
+  col_channel_id = 'sale_channel_id',
+  col_is_automatic_deduction = NA,
+  include_ad_orders = FALSE,
+  # 由保司提供的一级渠道匹配sku_code的表
+  df_channel_cls1 = NULL,
+  col_channel_cls1_channel_cls1 = 'channel_cls1',
+  col_company_channel_cls1 = 'company',
+  # 数据库中一二三级渠道的表
+  df_channel_cls123 = NULL,
+  col_channel_date_created_cls123 = 'channel_date_created',
+  col_channel_cls1_channel_cls123 = 'channel_cls1',
+  col_channel_cls2_channel_cls123 = 'channel_cls2',
+  col_channel_cls3_channel_cls123 = 'channel_cls3',
+  col_channel_id_channel_cls123 = 'sale_channel_id'
+) {
+  sop_dir <- getwd()
+  # 如果没有sop_datetime则根据end_time生成sop_datetime
+  if(is.na(sop_datetime)) {
+    sop_datetime <- paste0(
+      lubridate::year(end_time), '年', 
+      lubridate::month(end_time), '月', 
+      lubridate::day(end_time), '日', 
+      lubridate::hour(end_time), '时'
+    )
+  }
+  
+  # Rename columns
+  df_orders <- df_orders %>% 
+    rename(
+      col_order_item_id = !!col_order_item_id,
+      col_date_created = !!col_date_created,
+      col_policy_order_status = !!col_policy_order_status,
+      col_channel_cls1 = !!col_channel_cls1,
+      col_channel_cls2 = !!col_channel_cls2,
+      col_channel_cls3 = !!col_channel_cls3,
+      col_channel_id = !!col_channel_id
+    ) %>% 
+    mutate(col_date_created = as_date(col_date_created))
+  # 如果提供了自动扣费的字段，则认为是要去掉自动扣费订单
+  if(!is.na(col_is_automatic_deduction)) {
+    df_orders <- df_orders %>% 
+      rename(col_is_automatic_deduction = !!col_is_automatic_deduction) %>% 
+      filter(col_is_automatic_deduction == '0')
+  }
+  # 去掉多余的列，减少内存使用
+  df_orders <- df_orders %>% select(contains('col_'))
+  
+  # 开始日期和结束日期
+  if(is.na(start_time)) { start_time <- min(df_orders[['col_date_created']]) }
+  start_date <- as_date(start_time)
+  end_date <- as_date(end_time)
+  
+  # Rename columns in df_channel_cls1
+  df_channel_cls1 <- df_channel_cls1 %>% 
+    rename(
+      col_channel_cls1_channel_cls1 = !!col_channel_cls1_channel_cls1,
+      col_company_channel_cls1 = !!col_company_channel_cls1
+    ) %>% 
+    # 去掉多余的列，减少内存使用
+    select(contains('col_'))
+  
+  # Rename columns in df_channel_cls123
+  df_channel_cls123 <- df_channel_cls123 %>% 
+    rename(
+      col_channel_date_created_cls123 = !!col_channel_date_created_cls123,
+      col_channel_cls1_channel_cls123 = !!col_channel_cls1_channel_cls123,
+      col_channel_cls2_channel_cls123 = !!col_channel_cls2_channel_cls123,
+      col_channel_cls3_channel_cls123 = !!col_channel_cls3_channel_cls123,
+      col_channel_id_channel_cls123 = !!col_channel_id_channel_cls123
+    ) %>% 
+    mutate(
+      col_channel_date_created_cls123 = as_date(col_channel_date_created_cls123)
+    ) %>% 
+    # 去掉多余的列，减少内存使用
+    select(contains('col_'))
+  
+  # 去除退单
+  refund_status <- c('04', '05')
+  df_orders <- df_orders %>% filter(!col_policy_order_status %in% refund_status)
+  
+  # 计算项目上线时间
+  proj_days <- as.numeric(end_date - start_date)
+  
+  # 将平安展e保替换成channel_cls3
+  df_orders$col_channel_id <- ifelse(
+    str_detect(df_orders$col_channel_cls1, '展[E|e]保'), 
+    df_orders$col_channel_cls3, 
+    df_orders$col_channel_id
+  )
+  # 统计每个渠道的出单数及日均出单数
+  count_orders_by_channel_id <- df_orders %>% 
+    group_by(col_channel_id) %>% 
+    mutate(count_orders = length(unique(col_order_item_id))) %>% 
+    mutate(daily_orders = count_orders / proj_days) %>% 
+    ungroup() %>% 
+    select(col_channel_cls1, col_channel_cls2, col_channel_cls3, count_orders, daily_orders) %>% 
+    distinct() %>% 
+    # 添加公司
+    left_join(df_channel_cls1, by = c('col_channel_cls1' = 'col_channel_cls1_channel_cls1')) %>% 
+    select(
+      保险公司 = col_company_channel_cls1,
+      一级渠道 = col_channel_cls1,
+      二级渠道 = col_channel_cls2,
+      三级渠道 = col_channel_cls3,
+      总单量 = count_orders,
+      平均日单量 = daily_orders
+    )
+  
+  # 没有出单的业务员
+  df_channel_cls123 <- df_channel_cls123 %>% 
+    # 筛选截止到统计时间的注册业务员
+    filter(col_channel_date_created_cls123 <= end_time) %>% 
+    # 根据保司提供的一级渠道筛选所有注册的业务员
+    filter(col_channel_cls1_channel_cls123 %in% df_channel_cls1$col_channel_cls1_channel_cls1) %>% 
+    # 保留没有出单的业务员
+    filter(!col_channel_id_channel_cls123 %in% df_orders$col_channel_id) %>% 
+    # 添加公司
+    left_join(
+      df_channel_cls1, by = c('col_channel_cls1_channel_cls123' = 'col_channel_cls1_channel_cls1')
+    ) %>% 
+    select(
+      保险公司 = col_company_channel_cls1,
+      一级渠道 = col_channel_cls1_channel_cls123,
+      二级渠道 = col_channel_cls2_channel_cls123,
+      三级渠道 = col_channel_cls3_channel_cls123
+    ) %>% 
+    mutate(总单量 = 0, 平均日单量 = 0)
+  
+  count_orders_by_channel_id <- bind_rows(count_orders_by_channel_id, df_channel_cls123) %>% 
+    arrange(保险公司) %>% 
+    distinct() %>% 
+    # 一级渠道和公司名匹配不上的不能直接去掉，否则数据对不上
+    #filter(!is.na(保险公司)) %>% 
+    mutate(保险公司 = replace_na(保险公司, 'Unmatched'))
+  
+  return(count_orders_by_channel_id)
 }

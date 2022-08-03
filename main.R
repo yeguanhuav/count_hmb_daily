@@ -1,4 +1,5 @@
 ############################ Main script of Standard Operating Procedure ##########################
+
 # 一、获取输入参数 ----
 # Get option from optparse
 if(T) {
@@ -6,6 +7,15 @@ if(T) {
   opt = optparse::parse_args(
     OptionParser(
       option_list = list(
+        # 强制输入工作路径
+        # R simply has no built-in way to determine the path of the currently running piece of code.
+        # https://stackoverflow.com/a/71992627/10341233
+        make_option(
+          c("--sop-dir"), type = "character", default = "/data/users/yeguanhua/SOP",
+          help = paste0(
+            "Required. The working directory of SOP."
+          )
+        ),
         # 需要统计数据的项目
         make_option(
           c("--city-list"), type = "character", default = NA,
@@ -54,10 +64,10 @@ if(T) {
             "Input 2 digits number such as '12' and end_time will be set to xxxx-xx-xx 12:00:00."
           )
         ),
-        # 是否提取退单的原因
-        make_option(
-          c("--refund-status"), type = "logical", default = FALSE
-        ),
+        # # 是否提取退单的原因
+        # make_option(
+        #   c("--refund-status"), type = "logical", default = FALSE
+        # ),
         # 是否需要特殊处理（例如提取某个城市去年的订单）
         make_option(
           c("--special-processing"), type = "logical", default = FALSE
@@ -97,13 +107,31 @@ if(T) {
 #saveRDS(opt, 'opt.RDS')
 # 判断参数是否输入正确
 if(T) {
+  # Check working directory
+  # 判断路径是否存在
+  if(dir.exists(opt$`sop-dir`)) {
+    sop_dir <- opt$`sop-dir`
+  } else {
+    stop(glue::glue("Cannot find working directory: {opt$`sop-dir`}"))
+  }
+  print(
+    glue::glue(
+      "
+-------------------------------------------------------
+ Set working directory to '{sop_dir}'.
+-------------------------------------------------------
+      "
+    )
+  )
+  setwd(sop_dir)
+  # 判断是否为服务器路径
+  if(stringr::str_detect(sop_dir, '/data/users/')) { server_env <- TRUE }
+  
   # 1.城市
   # 首先拆分输入的城市列表
   city_list <- as.character(stringr::str_split(opt$`city-list`, ',', simplify = TRUE))
-  # # 如果城市列表含有NA，则报错
-  # if(length(which(is.na(opt$`city-list`))) != 0) {
-  #   stop("City list contains NA, please check again.")
-  # }
+  # 如果城市列表含有NA，则报错
+  if(length(which(is.na(city_list))) != 0) { stop("City list contains NA, please check again.") }
   
   # 2.年份
   # 首先拆分输入的年份
@@ -182,45 +210,36 @@ if(T) {
     )
   }
   
-  # # 6.邮件附件列表
-  # email_attachments <- NULL
-  
-  # 7.如果某个项目的SOP压缩文件没有生成，将保存于此
+  # 6.如果某个项目的SOP压缩文件没有生成，将保存于此
   missing_files <- NULL
 }
 
 # 二、环境 ----
-# 加载包，指定工作路径
+# Load packages
 if(T) {
-  # Load packages
-  library(bit64) # MySQL取出的数字是interger64格式，需要手动加载bit64包，否则会乱码
-  library(rmarkdown)
-  library(rticles)
-  library(RMariaDB)
-  library(emayili)
-  library(logr)
-  library(zip)
-  library(glue)
-  library(ggsci)
-  library(scales)
-  library(readxl)
-  library(writexl)
-  library(openxlsx)
-  library(lubridate)
-  library(tidyverse)
-  
-  # Working directory
-  if(dir.exists('/data/users/yeguanhua/SOP')) {
-    sop_dir <- '/data/users/yeguanhua/SOP'
-  } else {
-    sop_dir <- getwd()
-  }
-  setwd(sop_dir)
+  library(pacman)
+  p_load(
+    bit64, # MySQL取出的数字是interger64格式，需要手动加载bit64包，否则会乱码
+    rmarkdown,
+    rticles,
+    RMariaDB,
+    mailR,
+    logr,
+    zip,
+    glue,
+    ggsci,
+    scales,
+    readxl,
+    writexl,
+    openxlsx,
+    lubridate,
+    tidyverse
+  )
 }
-# log
+# Log文件
 if(T) {
   # If working directory is in server, open log file
-  if(sop_dir == '/data/users/yeguanhua/SOP') {
+  if(server_env) {
     logr::log_open(
       file_name = paste0(
         'log_', 
@@ -232,17 +251,17 @@ if(T) {
     )
   }
 }
-# 通用信息提取
+# 通用信息
 if(T) {
   # 数据库
   product <- dbConnect(
     drv = RMariaDB::MariaDB(), 
-    user = '***',
-    password = '***',
-    host = '***',
-    port = 123,
-    dbname = '***',
-    groups = '***'
+    user = '',
+    password = '',
+    host = '',
+    port = ,
+    dbname = '',
+    groups = ''
   )
   
   # 渠道信息
@@ -268,39 +287,62 @@ SELECT
 				SUBSTRING_INDEX( ancestor_name, ',', -1 ),
 				channel_name
 		) channel_cls2,
-		# 去掉三级渠道井号前的字符
-		CASE
-		    WHEN (LOCATE('#', channel_name) > 0) THEN 
-				    SUBSTR(channel_name, LOCATE('#', channel_name) + 1)
-		    ELSE 
-				    channel_name
-    END channel_cls3
+		# 去掉三级渠道“#”前的字符
+		#CASE
+		#    WHEN (LOCATE('#', channel_name) > 0) THEN 
+		#		    SUBSTR(channel_name, LOCATE('#', channel_name) + 1)
+		#    ELSE 
+		#		    channel_name
+    #END channel_cls3
+    # 需要保留三级渠道“#”前的字符，用于ancestor缺失的数据去匹配一级、二级渠道
+    channel_name channel_cls3
 FROM 
     glk_channel
 WHERE
-    (
-    ancestor_name NOT LIKE '%思派%药房%' 
-    AND ancestor_name NOT LIKE '%健1宝%' 
-    AND ancestor_name NOT LIKE '%派服务%' 
-    AND ancestor_name NOT LIKE '%远通%'
-    )
-    OR ancestor_name IS NULL
+    ancestor_name IS NULL
 # 不要限定时间，因为代理人会在开售前就注册，而且总量不大直接全部取
-        "
+      "
     )
   ) %>% 
     # 去掉time-zone
     mutate(channel_date_created = str_replace(channel_date_created, '(.*)\\sCST', '\\1')) %>% 
     # 转换日期格式
-    mutate(channel_date_created = as.POSIXct(channel_date_created)) %>% 
-    # 去掉测试渠道
-    filter(across(.cols = everything(), .fns = ~ str_detect(., "测试", negate = T)))
+    mutate(channel_date_created = as.POSIXct(channel_date_created, tz = 'Asia/Shanghai'))# %>% 
+    ## 去掉测试渠道  # 不能加这一步，会把ancestor_name IS NULL的记录给去掉
+    #filter(across(.cols = everything(), .fns = ~ str_detect(., "测试", negate = T)))
+  # 对ancestor_name IS NULL的记录做处理
+  channel_cls123 <- channel_cls123 %>% 
+    # 取出“#”号前的字符
+    separate(
+      col = 'channel_cls3', into = c('ancestor_encode', 'channel_cls3'), sep = '#', fill = 'left'
+    )
+  # 找到一级、二级渠道缺失的记录
+  ancestor_is_null <- channel_cls123 %>% 
+    # 只能对有ancestor_encode的记录处理
+    filter(!is.na(ancestor_encode), (is.na(channel_cls1) | is.na(channel_cls2)))
+  if(nrow(ancestor_is_null) != 0) {
+    ancestor_is_null <- ancestor_is_null %>% 
+      # 三级渠道“#”前的字符就是ancestor的channel_encode，根据这个匹配一级、二级渠道
+      select(-channel_cls1, -channel_cls2) %>% 
+      left_join(
+        select(channel_cls123, ancestor_encode = sale_channel_id, channel_cls1, channel_cls2)
+      )
+    # 替换原来的数据
+    channel_cls123 <- channel_cls123 %>% 
+      filter(!sale_channel_id %in% ancestor_is_null$sale_channel_id) %>% 
+      bind_rows(ancestor_is_null)
+  }
+  channel_cls123 <- channel_cls123 %>% select(-ancestor_encode)
+  # 测试
+  #ancestor_is_null <- channel_cls123 %>% 
+  #  filter(!is.na(ancestor_encode), (is.na(channel_cls1) | is.na(channel_cls2)))
   
-  # 企业信息
-  company_info <- dbGetQuery(
-    product,
-    glue(
-      "
+  # 企业信息（暂时没用到）
+  if(F) {
+    company_info <- dbGetQuery(
+      product,
+      glue(
+        "
 SELECT
     com_id, 
     business_name,
@@ -323,11 +365,13 @@ FROM
     company_info
 # 企业信息不能限定时间，如果不是第一年的项目那企业信息可能之前就注册过了
         "
+      )
     )
-  )
+  }
   
   # 退单原因
-  if(opt$`refund-status`) {
+  #if(opt$`refund-status`) {
+  if(F) {
     refund <- dbGetQuery(
       product,
       glue(
@@ -340,13 +384,10 @@ FROM
     order_trade_record
 WHERE 
     `event` = '07' # 07为撤契，08为取消
-    #AND date_created >= '{start_time}' 
-    #AND date_created < '{end_time}' 
     AND remark NOT LIKE '%测试%'
-    AND remark NOT LIKE '%周文怡要求退款%'
 GROUP BY 
     pk_order_item
-          "
+        "
       )
     ) %>% 
       # 去掉time-zone
@@ -355,7 +396,7 @@ GROUP BY
       ) %>% 
       # 转换日期格式
       mutate(
-        date_updated_refund_remark = as.POSIXct(date_updated_refund_remark)
+        date_updated_refund_remark = as.POSIXct(date_updated_refund_remark, tz = 'Asia/Shanghai')
       )
     # refund <- refund %>% 
     #  # 取更新时间最新的退款原因，否则用left_join()会导致个人订单出现重复
@@ -387,7 +428,7 @@ GROUP BY
       refund$remark
     )
     refund$remark <- ifelse(
-      str_detect(refund$remark, glue('国外|不在[{city}|中国|国内]')),
+      str_detect(refund$remark, glue('国外|不在[中国|国内]')),
       '其他',
       refund$remark
     )
@@ -421,6 +462,14 @@ GROUP BY
   # 清除SQL数据，防止后续爆内存
   dbDisconnect(product)
   rm(product)
+  
+  # 支付方式
+  payway_self <- read_excel(path = paste0(sop_dir, '/', 'payway.xlsx'), sheet = '个人') %>% 
+    mutate(code = as.character(code)) %>% 
+    rename(payway_code = code)
+  payway_com <- read_excel(path = paste0(sop_dir, '/', 'payway.xlsx'), sheet = '企业') %>% 
+    mutate(code = as.character(code)) %>% 
+    rename(payway_code = code)
 }
 
 # 对每个城市做数据统计
@@ -440,10 +489,7 @@ for(c in 1:length(city_list)) {
   # 三、项目信息 ----
   if(T) {
     # 个人skucode
-    company_self <- read_xlsx(
-      path = paste0(sop_dir, '/', 'skucode_all.xlsx'), 
-      col_types = c('text', 'text', 'text', 'text', 'text', 'text')
-    ) %>% 
+    company_self <- read_xlsx(path = paste0(sop_dir, '/', 'skucode_all.xlsx'), col_type = 'text') %>% 
       filter(city == !!city) %>% 
       filter(year == !!year) %>% 
       filter(group == '个人') %>% 
@@ -457,10 +503,7 @@ for(c in 1:length(city_list)) {
     sku_code_self <- paste0("'", paste0(company_self$sku_code, collapse = "', '"), "'")
     
     # 企业skucode
-    company_com <- read_xlsx(
-      path = paste0(sop_dir, '/', 'skucode_all.xlsx'), 
-      col_types = c('text', 'text', 'text', 'text', 'text', 'text')
-    ) %>% 
+    company_com <- read_xlsx(path = paste0(sop_dir, '/', 'skucode_all.xlsx'), col_type = 'text') %>% 
       filter(city == !!city) %>% 
       filter(year == !!year) %>% 
       filter(group == '企业') %>% 
@@ -475,40 +518,26 @@ for(c in 1:length(city_list)) {
     
     # 一级渠道信息
     df_channel_cls1 <- read_xlsx(
-      path = paste0(sop_dir, '/', 'channel_cls1.xlsx'),
-      col_types = c('text', 'text', 'text', 'text')
+      path = paste0(sop_dir, '/', 'channel_cls1.xlsx'), col_type = 'text'
     ) %>% 
       filter(city == !!city, year == !!year)
     
-    if(city == '徐州') {
-      project_name <- '惠徐保'
-      if(year == '2021') {
-        start_time <- '2020-10-27 00:00:00'
-        end_time <- '2021-02-01 00:00:00'
-        online_sku_code <- c('00000013', '00000133')
-        ended <- TRUE
-      }
+    if(city == '全国版') {
+      project_name <- '惠民保'
       if(year == '2022') {
-        start_time <- '2021-10-20 00:00:00'
-        end_time <- '2022-02-01 00:00:00'
-        online_sku_code <- c('200001582', '200001583', '20001719', '200001693')
+        start_time <- '2022-03-11 00:00:00'
+        end_time <- as.character(Sys.time())
+        price <- " '7900','19900','8000','20000' "
+        online_sku_code <- c()
         ended <- FALSE
       }
-      price <- "'6900'"
       have_relationship <- TRUE
-      district <- c(
-        # 用“, ”分开同一区中不同的身份证区号
-        # 江苏省徐州市、江苏省徐州市鼓楼区、江苏省徐州市云龙区、江苏省徐州市泉山区合并为市区
-        '江苏省徐州市市区' = '320300, 320301, 320302, 320303, 320311', 
-        '江苏省徐州市贾汪区' = '320305', 
-        '江苏省徐州市铜山区' = '320312, 320323, 320304', 
-        '江苏省徐州市丰县' = '320321', 
-        '江苏省徐州市沛县' = '320322', 
-        '江苏省徐州市睢宁县' = '320324', 
-        '江苏省徐州市新沂市' = '320381, 320326',
-        '江苏省徐州市邳州市' = '320382, 320325'
+      # 区域信息
+      district_code <- read_excel(
+        path = paste0(sop_dir, '/', city, '/', 'district_code.xlsx'), col_types = c('text', 'text')
       )
-      
+      district <- district_code[['district_code']]
+      names(district) <- district_code[['district']]
     }
     
     # 如果查询已结束的项目，则忽略online_sku_code
@@ -524,6 +553,7 @@ for(c in 1:length(city_list)) {
       }
       rm(start_time_tmp)
     }
+    print(glue("start_time: {start_time}"))
     
     # 判断是否有外部输入的结束日期
     if(!is.na(end_times)) {
@@ -538,6 +568,7 @@ for(c in 1:length(city_list)) {
     if(!is.na(opt$hr) & opt$hr != '') {
       end_time <- str_replace(end_time, "(....-..-..\\s).*", glue("\\1{opt$hr}:00:00"))
     }
+    print(glue("end_time: {end_time}"))
     
     # 文件名的时间
     sop_datetime <- paste0(
@@ -557,14 +588,6 @@ for(c in 1:length(city_list)) {
       dir.create(glue("{sop_dir}/{city}/{sop_datetime}"))
     }
     proj_dir <- glue("{sop_dir}/{city}/{sop_datetime}")
-    
-    # 如果需要发送SOP邮件，提前将第6步生成的压缩文件提前添加到附件列表
-    # if(opt$`send-sop-email`) {
-    #   email_attachments <- c(
-    #     email_attachments,
-    #     glue("{sop_dir}/{city}/{sop_datetime}/{city}项目统计数据-截止至{sop_datetime}.zip")
-    #   )
-    # }
   }
   
   print(
@@ -583,12 +606,12 @@ for(c in 1:length(city_list)) {
     # 4.1 数据库 ----
     product <- dbConnect(
       drv = RMariaDB::MariaDB(), 
-      user = '***',
-      password = '***',
-      host = '***',
-      port = 123,
-      dbname = '***',
-      groups = '***'
+      user = '',
+      password = '',
+      host = '',
+      port = ,
+      dbname = '',
+      groups = ''
     )
     
     # 4.2 个人订单 ----
@@ -620,15 +643,10 @@ SELECT
         WHEN medical_insure_flag = 1 THEN 1 ELSE 0 # 转换成数字方便后续统计
     END medical_insure_flag,
     CAST( payment_amount AS CHAR ) payment_amount,
+    CAST( payway AS CHAR ) payway_code,
     CASE
-        WHEN payway = '00' THEN '微信'
-        WHEN payway = '02' THEN '支付宝'
-        # 医保个账：07-徐州2021，14-芜湖2021，15-江门2021，16-徐州2022
-        WHEN payway IN ('07','14','15','16') THEN '医保个账'
-        ELSE '其他'
-    END pay_way,
-    CASE
-        WHEN refund_status >= '01' THEN '04' ELSE '00'
+        # 当refund_status=02，为退单完成，是date_updated更新的终态
+        WHEN refund_status = '02' THEN '04' ELSE '00'
     END policy_order_status,
     'self' AS `group`
 FROM 
@@ -650,9 +668,23 @@ WHERE
       ) %>% 
       # 转换日期格式
       mutate(
-        date_created = as.POSIXct(date_created), 
-        date_updated = as.POSIXct(date_updated)
+        date_created = as.POSIXct(date_created, tz = 'Asia/Shanghai'), 
+        date_updated = as.POSIXct(date_updated, tz = 'Asia/Shanghai')
       )
+    # 记录数据库最新更新时间，方便判断数据库同步是否中断
+    if(server_env) {
+      logr::log_print(glue("Max date_updated: {as.character(max(self_orders$date_created))}."))
+    } else {
+      print(
+        glue(
+          "
+-------------------------------------------------------
+ Max date_updated: {as.character(max(self_orders$date_created))}.
+-------------------------------------------------------
+          "
+        )
+      )
+    }
     # 添加被保险人信息 (order_service_obj) ----
     self_orders <- self_orders %>% 
       left_join(
@@ -796,12 +828,18 @@ WHERE
             ) %>% 
             # 转换日期格式
             mutate(
-              effective_date = as.POSIXct(effective_date), 
-              expiry_date = as.POSIXct(expiry_date)
+              effective_date = as.POSIXct(effective_date, tz = 'Asia/Shanghai'), 
+              expiry_date = as.POSIXct(expiry_date, tz = 'Asia/Shanghai')
             )
         )
     }
-    # 其他筛选 ----
+    # 其他处理 ----
+    # 添加支付方式
+    self_orders <- self_orders %>% 
+      left_join(payway_self) %>% 
+      # 将没有匹配上的支付方式设为其他
+      mutate(payway = replace_na(payway, '其他')) %>% 
+      select(-payway_code)
     # 把没有sale_channel_id的订单挑出来再添加渠道信息，否则会造成订单重复！！！
     self_orders_no_channel <- filter(self_orders, is.na(sale_channel_id))
     self_orders <- filter(self_orders, !order_item_id %in% self_orders_no_channel$order_item_id)
@@ -854,16 +892,16 @@ WHERE
       select(-agent_no)
     # 添加保险公司
     self_orders <- self_orders %>% left_join(company_self)
-    # 添加退单原因
-    if(opt$`refund-status`) { self_orders <- self_orders %>% left_join(refund) }
+    # # 添加退单原因
+    # if(opt$`refund-status`) { self_orders <- self_orders %>% left_join(refund) }
     # 根据skucode标记线上平台的订单
     self_orders[self_orders$sku_code %in% online_sku_code, 'company'] <- '线上平台'
     # 去掉不知道哪里产生的重复订单
     self_orders <- self_orders %>% distinct()
-    # 检查订单参保人身份证是否有重复订单
-    if(length(which(duplicated(self_orders$id_no))) != 0) {
-      warning(paste0(city, "个人订单的参保人身份证有重复"))
-    }
+    # # 检查订单参保人身份证是否有重复订单
+    # if(length(which(duplicated(self_orders$id_no))) != 0) {
+    #   warning(paste0(city, "个人订单的参保人身份证有重复"))
+    # }
     
     # 4.3 企业订单 ----
     # 企业订单所需表格
@@ -922,8 +960,8 @@ WHERE
       ) %>% 
       # 转换日期格式
       mutate(
-        date_created = as.POSIXct(date_created), 
-        date_updated = as.POSIXct(date_updated)
+        date_created = as.POSIXct(date_created, tz = 'Asia/Shanghai'), 
+        date_updated = as.POSIXct(date_updated, tz = 'Asia/Shanghai')
       )
     # 添加被保险人信息 (com_order_item_info) ----
     com_orders <- com_orders %>% 
@@ -969,13 +1007,7 @@ WHERE
 SELECT 
     order_id, 
     CAST( date_updated AS CHAR ) date_updated_pay,
-    CASE
-        WHEN pay_way = '00' THEN '微信支付'
-        WHEN pay_way = '05' THEN '银联支付'
-        WHEN pay_way IN ('09', '10') THEN '对公转账'
-        WHEN pay_way IN ('11', '12') THEN '医保个账支付'
-        ELSE '其他支付'
-    END pay_way
+    CAST( pay_way AS CHAR ) payway_code
 FROM 
     com_order_payment
 WHERE 
@@ -991,7 +1023,7 @@ WHERE
           ) %>% 
           # 转换日期格式
           mutate(
-            date_updated_pay = as.POSIXct(date_updated_pay)
+            date_updated_pay = as.POSIXct(date_updated_pay, tz = 'Asia/Shanghai')
           )
       )
     # 添加主订单编号 (com_order) ----
@@ -1041,11 +1073,17 @@ WHERE
           ) %>% 
           # 转换日期格式
           mutate(
-            effective_date = as.POSIXct(effective_date), 
-            expiry_date = as.POSIXct(expiry_date)
+            effective_date = as.POSIXct(effective_date, tz = 'Asia/Shanghai'), 
+            expiry_date = as.POSIXct(expiry_date, tz = 'Asia/Shanghai')
           )
       )
-    # 其他筛选 ----
+    # 其他处理 ----
+    # 添加支付方式
+    com_orders <- com_orders %>% 
+      left_join(payway_com) %>% 
+      # 将没有匹配上的支付方式设为其他
+      mutate(payway = replace_na(payway, '其他')) %>% 
+      select(-payway_code)
     # 把没有sale_channel_id的订单挑出来再添加渠道信息，否则会造成订单重复！！！
     com_orders_no_channel <- filter(com_orders, is.na(sale_channel_id))
     com_orders <- filter(com_orders, !order_item_id %in% com_orders_no_channel$order_item_id)
@@ -1094,94 +1132,15 @@ WHERE
       rename(date_created_origin = date_created) %>% 
       rename(date_created = date_updated_pay) %>% 
       distinct()
-    # 检查订单参保人身份证是否有重复订单
-    if(length(which(duplicated(com_orders$id_no))) != 0) {
-      warning(paste0(city, "企业订单的参保人身份证有重复"))
-    }
+    # # 检查订单参保人身份证是否有重复订单
+    # if(length(which(duplicated(com_orders$id_no))) != 0) {
+    #   warning(paste0(city, "企业订单的参保人身份证有重复"))
+    # }
     
     # 4.4 特殊处理 ----
     if(opt$`special-processing`) {
       
       save_list_special_processing <- NULL
-      
-      # # 成都
-      # if(city == '成都') {
-      #   if(year == '2021') { source('成都/special_processing_chengdu.R') }
-      # }
-      
-      # # 惠州
-      # if(city == '惠州') {
-      #   if(year == '2021') { source('惠州/special_processing_huizhou.R') }
-      # }
-      
-      # # 苏州
-      # if(city == '苏州') {
-      #   if(year == '2022') { source('苏州/special_processing_suzhou.R') }
-      # }
-      
-      # # 芜湖
-      # if(city == '芜湖') {
-      #   if(year == '2021') {
-      #     # 将皖事通作为单独的保司进行统计
-      #     wanshitong <- self_orders[
-      #       str_detect(self_orders$channel_cls1, '皖事通'), 
-      #       c('order_item_id', 'company', 'channel_cls1')
-      #     ] %>% 
-      #       na.omit()
-      #     self_orders$company <- ifelse(
-      #       self_orders$order_item_id %in% wanshitong$order_item_id, 
-      #       '皖事通',
-      #       self_orders$company
-      #     )
-      #     rm(wanshitong)
-      #     gc()
-      #   }
-      # }
-      
-      # 徐州
-      if(city == '徐州') {
-        if(year == '2022') {
-          # 将去年的中国太保拆成太保财险和太保寿险
-          self_orders <- self_orders %>% 
-            mutate(
-              company = case_when(
-                company == '中国太保' & str_detect(channel_cls1, '产险') ~ '太保财险',
-                company == '中国太保' & str_detect(channel_cls1, '产险', negate = T) ~ '太保寿险',
-                TRUE ~ company
-              )
-            )
-          com_orders <- com_orders %>% 
-            mutate(
-              company = case_when(
-                company == '中国太保' & str_detect(channel_cls1, '产险') ~ '太保财险',
-                company == '中国太保' & str_detect(channel_cls1, '产险', negate = T) ~ '太保寿险',
-                TRUE ~ company
-              )
-            )
-        }
-      }
-      
-      # # 宜宾
-      # if(city == '宜宾') {
-      #   if(year == '2022') {
-      #     ### 宜宾2022年度自动扣费为一次扣所有保司，所以需要对自动扣费订单区分归属
-      #     # 筛选自动扣费订单，去掉归属保司
-      #     ad_orders <- filter(self_orders, sku_code == '200001946') %>% select(-company)
-      #     # 2021年度所有订单
-      #     yibin2021_orders <- bind_rows(
-      #       readRDS('宜宾/yibin2021_self_orders.RDS'), readRDS('宜宾/yibin2021_com_orders.RDS')
-      #     ) %>% 
-      #       select(-order_item_id)
-      #     # 为自动扣费订单添加2021年度的保司归属
-      #     ad_orders <- ad_orders %>% left_join(yibin2021_orders)
-      #     self_orders <- self_orders %>% 
-      #       filter(!order_item_id %in% ad_orders$order_item_id) %>% 
-      #       bind_rows(ad_orders) %>% 
-      #       mutate(company = str_replace(company, '线上平台', '思派平台'))
-      #     rm(ad_orders, yibin2021_orders)
-      #     gc()
-      #   }
-      # }
       
     }
     
@@ -1199,7 +1158,7 @@ WHERE
       if(opt$`save-query`) {
         save_list <- c(save_list, 'com_orders_dup')
       }
-      #if(sop_dir == '/data/users/yeguanhua/SOP') { logr::log_print(com_orders_dup) }
+      #if(server_env) { logr::log_print(com_orders_dup) }
     }
     # 个人
     if( length( which( duplicated( self_orders$order_item_id ) ) ) != 0 ) {
@@ -1211,11 +1170,12 @@ WHERE
       if(opt$`save-query`) {
         save_list <- c(save_list, 'self_orders_dup')
       }
-      #if(sop_dir == '/data/users/yeguanhua/SOP') { logr::log_print(self_orders_dup) }
+      #if(server_env) { logr::log_print(self_orders_dup) }
     }
     if(opt$`save-query`) {
       save_list <- c(
-        save_list, 'city', 'year', 'start_time', 'end_time', 'sop_dir', 'sop_datetime', 
+        save_list, 
+        'city', 'year', 'project_name', 'start_time', 'end_time', 'sop_dir', 'sop_datetime', 
         'self_orders', 'com_orders', 'channel_cls123', 'district', 'have_relationship', 'ended'
       )
       if(opt$`special-processing`) {
@@ -1244,7 +1204,7 @@ WHERE
     # 计算数据库取数所需时间
     end.time <- Sys.time()
     time.taken <- end.time - start.time
-    if(sop_dir == '/data/users/yeguanhua/SOP') {
+    if(server_env) {
       logr::log_print(paste0('The SQL query time of ', city, ' is: '))
       logr::log_print(time.taken)
     }
@@ -1276,14 +1236,24 @@ WHERE
       )
     }
     
-    # 年龄性别统计
-    source(paste0(sop_dir, '/', 'count_age_sex.R'), encoding = 'UTF-8', echo = TRUE)
     # 每日投保量分组统计
     source(paste0(sop_dir, '/', 'count_daily_orders.R'), encoding = 'UTF-8', echo = TRUE)
+    # 年龄性别统计
+    source(paste0(sop_dir, '/', 'count_age_sex.R'), encoding = 'UTF-8', echo = TRUE)
     # 引导退单情况
     source(paste0(sop_dir, '/', 'count_lured_refund_orders.R'), encoding = 'UTF-8', echo = TRUE)
     # 个人
     if(nrow(self_orders) != 0) {
+      count_daily_orders(
+        df_orders = self_orders, self_or_com_or_all = 'self', 
+        city = city, start_time = start_time, end_time = end_time#, count_sale_channel_id = T
+      ) %>% 
+        write_xlsx(
+          .,
+          glue(
+            "{sop_dir}/{city}/{sop_datetime}/{city}个人每日投保量统计-截止至{sop_datetime}.xlsx"
+          )
+        )
       count_age_sex(
         df_orders = self_orders, self_or_com_or_all = 'self', city = city, age_gap = 1, 
         col_group = 'company', start_time = start_time, end_time = end_time
@@ -1294,20 +1264,16 @@ WHERE
             "{sop_dir}/{city}/{sop_datetime}/{city}个人年龄性别统计-截止至{sop_datetime}.xlsx"
           )
         )
-      count_daily_orders(
-        df_orders = self_orders, self_or_com_or_all = 'self', 
-        city = city, start_time = start_time, end_time = end_time
-      ) %>% 
-        write_xlsx(
-          .,
-          glue(
-            "{sop_dir}/{city}/{sop_datetime}/{city}个人每日投保量统计-截止至{sop_datetime}.xlsx"
-          )
-        )
       # count_lured_refund_orders(
-      #   df_orders = self_orders, self_or_com_or_all = 'self', city = city, 
+      #   df_orders = self_orders, self_or_com_or_all = 'self', city = city,
       #   start_time = start_time, end_time = end_time
-      # )
+      # ) %>% 
+      #   write_xlsx(
+      #     .,
+      #     glue(
+      #       "{sop_dir}/{city}/{sop_datetime}/{city}引导退单情况统计-截止至{sop_datetime}.xlsx"
+      #     )
+      #   )
     }
     # 企业（注意日期用的是下单日期还是支付日期）
     if(nrow(com_orders) != 0) {
@@ -1376,14 +1342,6 @@ WHERE
     #library(extrafont)
     #font_import()
     #fonts()
-    # 判断有无df_channel_cls1
-    # if(is.null(df_channel_cls1)) {
-    #   nrow_df_channel_cls1 <- 0
-    # } else if(is.na(df_channel_cls1)) {
-    #   nrow_df_channel_cls1 <- 0
-    # } else if(df_channel_cls1 == '') {
-    #   nrow_df_channel_cls1 <- 0
-    # }
     nrow_df_channel_cls1 <- tryCatch(
       # expr
       { nrow(df_channel_cls1) },
@@ -1406,7 +1364,7 @@ WHERE
         col_is_automatic_deduction = 'is_automatic_deduction',
         df_channel_cls1 = df_channel_cls1, 
         df_channel_cls123 = channel_cls123,
-        agent_below_avg = TRUE,
+        agent_below_avg = F,
         sop_datetime = sop_datetime
       ) %>% 
         write_xlsx(
@@ -1415,6 +1373,25 @@ WHERE
             "{sop_dir}/{city}/{sop_datetime}/{city}保司出单情况-截止至{sop_datetime}.xlsx"
           )
         )
+      # 和代理人日均出单量
+      if(F) {
+        count_orders_by_channel_id_daily(
+          df_orders = filter(all_orders, !company %in% c('线上平台')),
+          city = city, 
+          start_time = start_time, 
+          end_time = end_time, 
+          col_is_automatic_deduction = 'is_automatic_deduction',
+          df_channel_cls1 = df_channel_cls1, 
+          df_channel_cls123 = channel_cls123,
+          sop_datetime = sop_datetime
+        ) %>% 
+          write_xlsx(
+            .,
+            glue(
+              "{sop_dir}/{city}/{sop_datetime}/{city}业务员出单情况-截止至{sop_datetime}.xlsx"
+            )
+          )
+      }
     } else if(nrow_df_channel_cls1 == 0) {
       # 如果没有，则只统计常规结果
       count_orders_by_agent(
@@ -1445,7 +1422,7 @@ WHERE
     count_orders_for_wechat_tweet(
       df_orders = all_orders, district_info = district, city = city, save_all = T, 
       have_relationship = have_relationship, col_medical_insure_flag = 'medical_insure_flag', 
-      col_pay_way = 'pay_way', start_time = start_time, end_time = end_time
+      col_pay_way = 'payway', start_time = start_time, end_time = end_time
     ) %>% 
       write_xlsx(
         .,
@@ -1456,56 +1433,18 @@ WHERE
     
   }
   
-  # 六、额外需求 ----
+  # 六、额外需求和数据汇报PDF ----
   # 统计自动扣费和续保情况或发送保司出单情况给保司等
   if(opt$`extra-requirement`) {
     if(city %in% extra_requirement_city_list) {
-      # # 成都
-      # if(city == '成都') {
-      #   if(year == '2021') { source('成都/extra_requirement_chengdu.R') }
-      # }
-      # # 临沂
-      # if(city == '临沂') {
-      #   if(year == '2021') { source('临沂/extra_requirement_linyi.R') }
-      # }
-      # # 随州
-      # if(city == '随州') {
-      #   if(year == '2021') { source('随州/extra_requirement_suizhou.R') }
-      # }
-      # # 苏州
-      # if(city == '苏州') {
-      #   if(year == '2022') { source('苏州/extra_requirement_suzhou.R') }
-      # }
-      # 徐州
-      if(city == '徐州') {
-        if(year == '2022') { source('徐州/extra_requirement_xuzhou.R') }
-      }
-      # # 韶关
-      # if(city == '韶关') {
-      #   if(year == '2022') { source('韶关/extra_requirement_shaoguan.R') }
-      # }
-      # # 广州
-      # if(city == '广州') {
-      #   if(year == '2022') { source('广州/extra_requirement_guangzhou.R') }
-      # }
-      # # 宜宾
-      # if(city == '宜宾') {
-      #   if(year == '2022') { source('宜宾/extra_requirement_yibin.R') }
-      # }
-      # # 惠州
-      # if(city == '惠州') {
-      #   if(year == '2022') { source('惠州/extra_requirement_huizhou.R') }
-      # }
-      # # 吉林
-      # if(city == '吉林') {
-      #   if(year == '2022') { source('吉林/extra_requirement_jilin.R') }
-      # }
+      
     }
   }
   # 在所有数据都生成后，再生成标准数据汇报PDF
   if(opt$`standard-report`) {
     rmarkdown::render(
-      'standard_report.Rmd', 
+      input = 'standard_report.Rmd', 
+      output_dir = glue("{sop_dir}/{city}/{sop_datetime}"),
       output_file = glue(
         "{sop_dir}/{city}/{sop_datetime}/{city}项目数据汇报-截止至{sop_datetime}.pdf"
       ),
@@ -1518,13 +1457,24 @@ WHERE
         sop_datetime = sop_datetime
       )
     )
+    # 清理Log文件
+    system(glue("rm {sop_dir}/{city}项目数据汇报-截止至{sop_datetime}.log"))
   }
   
   # 七、压缩文件和发送邮件 ----
   if(opt$`send-sop-email`) {
+    
+    print(
+      glue(
+        "
+-------------------------------------------------------
+         Compress files and send SOP emails.
+-------------------------------------------------------
+        "
+      )
+    )
+    
     # 压缩文件
-    # 表格所在的路径
-    #proj_dir <- paste0(sop_dir, '/', city, '/', sop_datetime)
     # 移动到表格的路径
     setwd(proj_dir)
     zip::zip(
@@ -1532,84 +1482,85 @@ WHERE
       files = list.files()[
         str_detect(
           list.files(), 
-          glue(
-            "{paste0(sop_datetime, '.xlsx')}|{paste0(sop_datetime, '.pdf')}|",
-            "低于累计人均出单量的代理人名单"
+          paste0(
+            c(glue("{sop_datetime}.xlsx"), glue("{sop_datetime}.pdf"), "代理人名单"), 
+            collapse = '|'
           )
         )
       ]
     )
-    # # 检查附件列表
-    # if(is.null(email_attachments)) {
-    #   # 如果没有附件，就不发送邮件
-    #   stop(paste0("Can't find any attached SOP files."))
-    # } else {
-    #   # 如果有附件列表，检查每个项目的压缩文件是否存在
-    #   # 只能检查每个项目的压缩文件是否存在，无法检查压缩文件内的表格是否齐全
-    #   for(attachment in email_attachments) {
-    #     if(file.exists(attachment)) {
-    #       next
-    #     } else {
-    #       # 记录压缩文件缺失的项目
-    #       missing_files <- c(missing_files, attachment)
-    #     }
-    #   }
-    #   # 如果有任何项目的压缩文件不存在，就不发送邮件
-    #   if(length(missing_files) != 0) {
-    #     stop(
-    #       glue(
-    #         "The below SOP files are missing, please check again: ",
-    #         "{paste0(missing_files, collapse = ', ')}."
-    #       )
-    #     )
-    #   }
-    # }
     # 如果项目的SOP压缩文件不存在，则跳过该项目，否则发送SOP邮件
     if( !file.exists(glue("{city}项目统计数据-截止至{sop_datetime}.zip")) ) {
+      
       warnings(glue("Cannot find SOP zipfile in {city}, email didnot sent."))
       missing_files <- c(missing_files, glue("{city}项目统计数据-截止至{sop_datetime}.zip"))
       next
+      
     } else if( file.exists(glue("{city}项目统计数据-截止至{sop_datetime}.zip")) ) {
+      
+      # 邮件标题
+      email_subject <- paste0(city, "项目统计数据-截止至", sop_datetime)
+      # 邮件内容
+      email_body <- paste0(
+        "您好，附件中是截止至", sop_datetime, city, "项目的统计数据，请您查收。\n"
+      )
+      # 邮件附件
+      email_attachment <- paste0(
+        sop_dir, '/', city, '/', sop_datetime, '/', 
+        city, "项目统计数据-截止至", sop_datetime, ".zip"
+      )
       # 收件人列表
       if(opt$test) {
-        receivers <- 'xxx@email.com'
+        receivers <- ''
       } else {
-        # 防止因没有设置收件人而中断任务
-        receivers <- 'xxx@email.com'
-      }
-      ### emayili
-      # 邮件服务器
-      smtp <- emayili::server(
-        host = "smtp.exmail.qq.com",
-        port = 465,
-        username = "xxx@email.com",
-        password = "your_passwd"
-      )
-      # 邮件内容
-      email <- emayili::envelope() %>% 
-        from("xxx@email.com") %>% 
-        to(receivers) %>% 
-        subject(enc2utf8(glue("{city}项目统计数据汇总-截止至{sop_datetime}"))) %>% 
-        text(
-          glue(
-            "
-            Dear all，
-    
-            附件中是截止至{sop_datetime}{city}项目的各项统计数据，请查收。
-            仅供内部使用，谢谢！
-    
-            Best regards,
-            叶冠华
-            "
+        if(city == '全国版') {
+          receivers <- c(
+            ""
           )
-        ) %>% 
-        attachment(path = glue("{city}项目统计数据-截止至{sop_datetime}.zip"))
-      # 发送邮件
-      smtp(email, verbose = FALSE)
+        }
+      }
+      ### mailR（邮件标题正常，但需要rJava且不支持glue字符，已停止更新）
+      mailR::send.mail(
+        from = '',
+        to = receivers,
+        subject = email_subject,
+        body = email_body,
+        attach.files = email_attachment,
+        # 邮箱服务器
+        smtp = list(
+          host.name = 'smtp.exmail.qq.com',
+          ssl = TRUE,
+          port = 465,
+          user.name = "",
+          passwd = ''
+        ),
+        authenticate = TRUE,
+        send = TRUE,
+        encoding = "utf-8"
+      )
+      # ### emayili（邮件标题可能会乱码，无依赖包且支持glue，持续更新中）
+      # # 邮件服务器
+      # smtp <- emayili::server(
+      #   host = "smtp.exmail.qq.com",
+      #   port = 465,
+      #   username = "",
+      #   password = ""
+      # )
+      # # 邮件内容
+      # email <- emayili::envelope() %>%
+      #   from("") %>%
+      #   to(receivers) %>%
+      #   subject(email_subject) %>%
+      #   text(email_body) %>%
+      #   attachment(path = glue("{city}项目统计数据-截止至{sop_datetime}.zip"))
+      # # 发送邮件
+      # smtp(email, verbose = FALSE)
+      
     }
     
     # 回到SOP路径
     setwd(sop_dir)
+    
   }
   
   # 八、清理内存 ----
@@ -1621,7 +1572,8 @@ WHERE
         # 需要保留的变量
         paste0(
           c('opt', 'sop_dir', 'city_list', 'year_list', 'start_times', 'end_times', 'refund', 
-            'extra_requirement_city_list', 'missing_files', 'channel_cls123', 'company_info'),
+            'extra_requirement_city_list', 'missing_files', 'channel_cls123', #'company_info',
+            'payway_self', 'payway_com'),
           collapse = "|"
         ),
         negate = TRUE

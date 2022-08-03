@@ -180,8 +180,8 @@ count_ad_and_renew_orders <- function(
   #df_all_orders <- bind_rows(df_orders_self, df_orders_com)
   
   # 开始日期和结束日期
-  start_date <- as.Date(start_time, tz = Sys.timezone())
-  end_date <- as.Date(end_time, tz = Sys.timezone())
+  start_date <- as_date(start_time)
+  end_date <- as_date(end_time)
   
   # # 创建excel workbook
   # wb <- createWorkbook()
@@ -1083,8 +1083,8 @@ ORDER BY
   #   if( !dir.exists(paste0(sop_dir, '/', city)) ) {
   #     dir.create(paste0(sop_dir, '/', city))
   #   }
-  #   if( !dir.exists(paste0(sop_dir, '/', city, '/', as.Date(end_time, tz = Sys.timezone()))) ) {
-  #     dir.create(paste0(sop_dir, '/', city, '/', as.Date(end_time, tz = Sys.timezone())))
+  #   if( !dir.exists(paste0(sop_dir, '/', city, '/', as_date(end_time))) ) {
+  #     dir.create(paste0(sop_dir, '/', city, '/', as_date(end_time)))
   #   }
   #   # 保存Excel
   #   # saveWorkbook(

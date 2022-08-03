@@ -47,8 +47,8 @@ count_lured_refund_orders <- function(
   
   # 开始日期和结束日期
   if(is.na(start_time)) { start_time <- min(df_orders[['col_date_created']]) }
-  start_date <- as.Date(start_time, tz = Sys.timezone())
-  end_date <- as.Date(end_time, tz = Sys.timezone())
+  start_date <- as_date(start_time)
+  end_date <- as_date(end_time)
   
   # refund_status
   if(self_or_com_or_all == 'self') {
@@ -149,6 +149,15 @@ count_lured_refund_orders <- function(
   #   rows = 1:(nrow(sheet1) + 1),
   #   gridExpand = T
   # )
+  column_to_scale <- colnames(sheet1)[str_detect(colnames(sheet1), '占比|率')]
+  for(column in column_to_scale) {
+    sheet1[[column]] <- scales::label_percent(
+      accuracy = 0.1, big.mark = ""
+    )(
+      as.numeric(sheet1[[column]])
+    ) %>% 
+      str_replace('Inf', '')
+  }
   output_list[[paste0('按公司统计引导退单量-', order_type, '订单')]] <- sheet1
   
   # Sheet2: 按【各级架构】统计总投保量，引导退单量及占比 ----
@@ -237,6 +246,15 @@ count_lured_refund_orders <- function(
   #   rows = 1:(nrow(sheet2) + 1),
   #   gridExpand = T
   # )
+  column_to_scale <- colnames(sheet2)[str_detect(colnames(sheet2), '占比|率')]
+  for(column in column_to_scale) {
+    sheet2[[column]] <- scales::label_percent(
+      accuracy = 0.1, big.mark = ""
+    )(
+      as.numeric(sheet2[[column]])
+    ) %>% 
+      str_replace('Inf', '')
+  }
   output_list[[paste0('按三级渠道统计引导退单量-', order_type, '订单')]] <- sheet2
   
   # if(save_result) {
@@ -244,8 +262,8 @@ count_lured_refund_orders <- function(
   #   if( !dir.exists(paste0(sop_dir, '/', city))) {
   #     dir.create(paste0(sop_dir, '/', city))
   #   }
-  #   if( !dir.exists(paste0(sop_dir, '/', city, '/', as.Date(end_time, tz = Sys.timezone()))) ) {
-  #     dir.create(paste0(sop_dir, '/', city, '/', as.Date(end_time, tz = Sys.timezone())))
+  #   if( !dir.exists(paste0(sop_dir, '/', city, '/', as_date(end_time))) ) {
+  #     dir.create(paste0(sop_dir, '/', city, '/', as_date(end_time)))
   #   }
   #   # 保存Excel
   #   saveWorkbook(

@@ -24,8 +24,11 @@ count_daily_orders <- function(
   col_open_id = 'open_id',
   col_com_id = 'com_id',
   col_automatic_deduction = 'automatic_deduction',
+  col_pay_way = NA,
   sop_datetime = NA,
   no_refund = FALSE, # developing, not usable
+  count_sale_channel_id = FALSE, # 按三级渠道统计每日订单数
+  col_sale_channel_id = NA,
   count_automatic_deduction = TRUE,
   plot_orders_and_users = FALSE,
   plot_user_insured_number = FALSE,
@@ -55,7 +58,7 @@ count_daily_orders <- function(
       col_channel_cls3 = !!col_channel_cls3
     ) %>% 
     mutate(
-      col_date_created = as.Date(col_date_created, tz = Sys.timezone())
+      col_date_created = as_date(col_date_created)
     )
   # col_open_id
   if(self_or_com_or_all == 'self') {
@@ -98,15 +101,24 @@ count_daily_orders <- function(
         col_policy_order_status = !!col_policy_order_status
       ) %>% 
       mutate(
-        col_date_updated = as.Date(col_date_updated, tz = Sys.timezone())
+        col_date_updated = as_date(col_date_updated)
       )
+  }
+  # col_pay_way
+  if(!is.na(col_pay_way)) {
+    df_orders <- df_orders %>% rename(col_pay_way = !!col_pay_way)
+  }
+  # col_sale_channel_id
+  if(count_sale_channel_id) {
+    if(is.na(col_sale_channel_id)) { col_sale_channel_id = 'sale_channel_id' }
+    df_orders <- df_orders %>% rename(col_sale_channel_id = !!col_sale_channel_id)
   }
   # 去掉多余的列，减少内存使用
   df_orders <- df_orders %>% select(contains('col_'))
   # 开始日期和结束日期
   if(is.na(start_time)) { start_time <- min(df_orders[['col_date_created']]) }
-  start_date <- as.Date(start_time, tz = Sys.timezone())
-  end_date <- as.Date(end_time, tz = Sys.timezone())
+  start_date <- as_date(start_time)
+  end_date <- as_date(end_time)
   # 按input日期筛选订单（注意input日期格式）
   df_orders <- df_orders %>% filter(col_date_created >= start_date & col_date_created <= end_date)
   
@@ -147,6 +159,12 @@ count_daily_orders <- function(
     group_by(日期, col_company, col_channel_cls1, col_channel_cls2) %>% 
     mutate(二级渠道退保量 = length(col_order_item_id)) %>% 
     ungroup()
+  if(count_sale_channel_id) {
+    refund_orders <- refund_orders %>% 
+      group_by(日期, col_company, col_sale_channel_id) %>% 
+      mutate(三级渠道退保量 = length(col_order_item_id)) %>% 
+      ungroup()
+  }
   
   # # openxlsx
   # # https://stackoverflow.com/a/57279302/10341233
@@ -160,10 +178,10 @@ count_daily_orders <- function(
   # writexl ----
   output_list <- list()
   
-  # Sheet1,2,3: 计算每日净投保量 ----
+  # 计算每日净投保量 ----
   df_orders <- df_orders %>% mutate(日期 = col_date_created)
   
-  # Sheet1：每日总量
+  # Sheet1：每日总量 ----
   # 总每日净投保量
   count_by_col_date <- df_orders %>% 
     group_by(日期) %>% 
@@ -227,7 +245,7 @@ count_daily_orders <- function(
   # Sheet1
   output_list[[paste0('每日投保量统计-', order_type, '订单')]] <- count_by_col_date
   
-  # Sheet2：每家保司每日投保量
+  # Sheet2：每家保司每日投保量 ----
   # 按保司分组计算每日净投保量
   count_by_col_company <- df_orders %>% 
     # 计算每家保司的每日净投保量
@@ -347,7 +365,7 @@ count_daily_orders <- function(
   # Sheet2
   output_list[[paste0('按保司统计-', order_type, '订单')]] <- count_by_col_company_output
   
-  # Sheet3：每家保司每个一级渠道每日投保量
+  # Sheet3：每家保司每个一级渠道每日投保量 ----
   # 按保司一级渠道分组计算每日净投保量
   count_by_col_channel_cls1 <- df_orders %>% 
     # 计算每家保司的每日净投保量
@@ -424,8 +442,8 @@ count_daily_orders <- function(
   # Sheet3
   output_list[[paste0('按一级渠道统计-', order_type, '订单')]] <- count_by_col_channel_cls1_output
   
-  # Sheet4：每家保司每个一级渠道每日投保量
-  # 按保司一级渠道分组计算每日净投保量
+  # Sheet4：每家保司每个二级渠道每日投保量 ----
+  # 按保司二级渠道分组计算每日净投保量
   count_by_col_channel_cls2 <- df_orders %>% 
     # 计算每家保司的每日净投保量
     group_by(日期, col_company, col_channel_cls1, col_channel_cls2) %>% 
@@ -501,14 +519,91 @@ count_daily_orders <- function(
   # Sheet4
   output_list[[paste0('按二级渠道统计-', order_type, '订单')]] <- count_by_col_channel_cls2_output
   
+  # Sheet5：按三级渠道(sale_channel_id)统计每日订单量 ----
+  if(count_sale_channel_id) {
+    # 按三级渠道分组计算每日净投保量
+    count_by_col_channel_cls3 <- df_orders %>% 
+      # 计算每家保司的每日净投保量
+      group_by(日期, col_company, col_sale_channel_id) %>% 
+      mutate(
+        三级渠道投保用户 = length(unique(col_open_id)),
+        三级渠道投保人 = length(unique(col_applicant_id_no)),
+        三级渠道投保量 = length(col_order_item_id)
+      ) %>% 
+      ungroup() %>% 
+      select(
+        日期, 保险公司 = col_company, 一级渠道 = col_channel_cls1, 二级渠道 = col_channel_cls2, 
+        三级渠道 = col_channel_cls3, 渠道编码 = col_sale_channel_id, 
+        三级渠道投保用户, 三级渠道投保人, 三级渠道投保量
+      ) %>% 
+      distinct() %>% 
+      full_join(
+        refund_orders %>% 
+          select(
+            日期, col_company, col_channel_cls1, col_channel_cls2, col_channel_cls3, 
+            col_sale_channel_id, 三级渠道退保量
+          ) %>% 
+          distinct(), 
+        by = c(
+          '日期' = '日期', '保险公司' = 'col_company', '一级渠道' = 'col_channel_cls1',
+          '二级渠道' = 'col_channel_cls2', '三级渠道' = 'col_channel_cls3',
+          '渠道编码' = 'col_sale_channel_id'
+        )
+      ) %>% 
+      # 替换NA为0
+      mutate(across(where(is.numeric), ~ replace_na(., 0))) %>% 
+      mutate(三级渠道净投保量 = 三级渠道投保量 - 三级渠道退保量) %>% 
+      distinct()
+    # 每家保司每个三级渠道的last row
+    count_by_col_channel_cls3_output <- count_by_col_channel_cls3[1,] %>% .[-1,] %>% 
+      mutate(日期 = as.character(日期))
+    for(i in unique(count_by_col_channel_cls3[['渠道编码']])) {
+      tmp_count_by_col_channel_cls3 <- count_by_col_channel_cls3 %>% 
+        filter(渠道编码 == !!i) %>% 
+        arrange(日期)
+      tmp_df_orders <- filter(df_orders, col_sale_channel_id == !!i)
+      tmp_refund_orders <- filter(refund_orders, col_sale_channel_id == !!i)
+      # last row
+      tmp_channel <- tmp_df_orders %>% 
+        select(
+          col_company, col_channel_cls1, col_channel_cls2, col_channel_cls3, col_sale_channel_id
+        ) %>% 
+        .[1,]
+      last_row <- tibble(
+        日期 = '合计',
+        保险公司 = tmp_channel[1, 1],
+        一级渠道 = tmp_channel[1, 2],
+        二级渠道 = tmp_channel[1, 3],
+        三级渠道 = tmp_channel[1, 4],
+        渠道编码 = tmp_channel[1, 5],
+        三级渠道投保用户 = length(unique(tmp_df_orders$col_open_id)),
+        三级渠道投保人 = length(unique(tmp_df_orders$col_applicant_id_no)),
+        三级渠道投保量 = length(tmp_df_orders$col_order_item_id),
+        三级渠道退保量 = length(tmp_refund_orders$col_order_item_id),
+        三级渠道净投保量 = 三级渠道投保量 - 三级渠道退保量
+      )
+      tmp_count_by_col_channel_cls3 <- tmp_count_by_col_channel_cls3 %>% 
+        mutate(日期 = as.character(日期)) %>% 
+        bind_rows(last_row)
+      count_by_col_channel_cls3_output <- bind_rows(
+        count_by_col_channel_cls3_output, tmp_count_by_col_channel_cls3
+      )
+    }
+    count_by_col_channel_cls3_output <- count_by_col_channel_cls3_output %>% 
+      mutate(保险公司 = factor(保险公司, levels = company_order)) %>% 
+      arrange(保险公司, 一级渠道, 二级渠道, 三级渠道, 日期)
+    # Sheet5
+    output_list[[paste0('按三级渠道统计-', order_type, '订单')]] <- count_by_col_channel_cls3_output
+  }
+  
   # 输出Excel ----
   # if(save_result) {
   #   # 创建文件夹
   #   if( !dir.exists(paste0(sop_dir, '/', city)) ) {
   #     dir.create(paste0(sop_dir, '/', city))
   #   }
-  #   if( !dir.exists(paste0(sop_dir, '/', city, '/', as.Date(end_time, tz = Sys.timezone()))) ) {
-  #     dir.create(paste0(sop_dir, '/', city, '/', as.Date(end_time, tz = Sys.timezone())))
+  #   if( !dir.exists(paste0(sop_dir, '/', city, '/', as_date(end_time))) ) {
+  #     dir.create(paste0(sop_dir, '/', city, '/', as_date(end_time)))
   #   }
   #   # 保存Excel
   #   saveWorkbook(

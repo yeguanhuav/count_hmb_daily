@@ -1,4 +1,5 @@
 ######################################### 年龄性别统计 #############################################
+# 年龄统计规定：不满整岁的按小一岁处理，例如出生364天为0岁，出生365天为1岁。
 library(glue)
 #library(openxlsx)
 library(scales)
@@ -43,7 +44,7 @@ count_age_sex <- function(
       col_id_no = !!col_id_no
     ) %>% 
     mutate(
-      col_date_created = as.Date(col_date_created, tz = Sys.timezone())
+      col_date_created = as_date(col_date_created)
     ) %>% 
     # 去掉多余的列，减少内存使用
     select(
@@ -58,8 +59,8 @@ count_age_sex <- function(
   
   # 开始日期和结束日期
   if(is.na(start_time)) { start_time <- min(df_orders[['col_date_created']]) }
-  start_date <- as.Date(start_time, tz = Sys.timezone())
-  end_date <- as.Date(end_time, tz = Sys.timezone())
+  start_date <- as_date(start_time)
+  end_date <- as_date(end_time)
   # 按input日期筛选订单（注意input日期格式）
   df_orders <- df_orders %>% filter(col_date_created >= start_date & col_date_created <= end_date)
   
@@ -85,8 +86,8 @@ count_age_sex <- function(
   no_refund_orders <- no_refund_orders %>% 
     # 转换日期格式
     mutate(
-      col_date_created = as.Date(col_date_created, tz = Sys.timezone()),
-      col_birthday = as.Date(col_birthday, tz = Sys.timezone())
+      col_date_created = as_date(col_date_created),
+      col_birthday = as_date(col_birthday)
     ) %>% 
     # 计算每日总订单
     group_by(col_date_created) %>% 
@@ -286,8 +287,8 @@ count_age_sex <- function(
   #   if( !dir.exists(paste0(sop_dir, '/', city)) ) {
   #     dir.create(paste0(sop_dir, '/', city))
   #   }
-  #   if( !dir.exists(paste0(sop_dir, '/', city, '/', as.Date(end_time, tz = Sys.timezone()))) ) {
-  #     dir.create(paste0(sop_dir, '/', city, '/', as.Date(end_time, tz = Sys.timezone())))
+  #   if( !dir.exists(paste0(sop_dir, '/', city, '/', as_date(end_time))) ) {
+  #     dir.create(paste0(sop_dir, '/', city, '/', as_date(end_time)))
   #   }
   #   # 保存Excel
   #   saveWorkbook(
